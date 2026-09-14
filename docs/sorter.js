@@ -82,26 +82,6 @@ export function classify(name) {
   return "other";
 }
 
-// Deterministic string hash, used to assign each file to one active session
-// without needing the same array ordering on every client - only the file's
-// own stable path and the shared sorted session-id list matter. Plain djb2
-// alone produces an arithmetic progression for sequential filenames (which
-// camera-generated names like IMG_0001.jpg, IMG_0002.jpg... always are),
-// and an arithmetic progression can collide catastrophically against a
-// small modulus (caught via a mocked 3-way split test where every single
-// file landed on the same person) - the extra avalanche mixing below
-// (MurmurHash3's finalizer) breaks up that structure before the modulo.
-function hashStr(s) {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  h ^= h >>> 16;
-  h = Math.imul(h, 0x85ebca6b);
-  h ^= h >>> 13;
-  h = Math.imul(h, 0xc2b2ae35);
-  h ^= h >>> 16;
-  return h >>> 0;
-}
-
 export function humanSize(n) {
   let size = Number(n) || 0;
   const units = ["o", "Ko", "Mo", "Go", "To"];
@@ -120,6 +100,7 @@ export class DriveSorter {
     this.rootId = null;
     this.rootName = "";
     this.allFiles = []; // { id, name, mimeType, size, parents, rel, kind }
+    this._relIndex = new Map(); // rel -> position in allFiles, for multi-user splitting
     this.queue = [];
     this.index = 0;
     this.kept = new Set();
@@ -231,16 +212,28 @@ export class DriveSorter {
     return KIND_ORDER.filter((k) => kinds.has(k));
   }
 
+  _setAllFiles(files) {
+    this.allFiles = files;
+    this._relIndex = new Map(files.map((f, i) => [f.rel, i]));
+  }
+
   // True if this file falls in my slice of the folder when several sessions
-  // are sorting it at once - a stable hash of the file's own path decides,
-  // so every client reaches the same answer without needing to agree on
-  // array ordering, just on the same sorted list of active session ids.
+  // are sorting it at once. Uses the file's own fixed position in allFiles
+  // (round-robin: file 0 -> rank 0, file 1 -> rank 1, ... wrapping around)
+  // rather than a hash of its name - a hash only balances on average and
+  // can land noticeably lopsided by chance (measured 11/11/18 across 3
+  // people on one real test run), while position-based round-robin divides
+  // the folder equally to within one file, always. allFiles is sorted
+  // identically on every client (see _scanWithTrash), and activeSessions is
+  // the same sorted list everywhere too, so every client computes the same
+  // assignment without needing to compare full file lists with each other.
   _isMine(f) {
     const n = this.activeSessions.length;
     if (n <= 1 || !this.mySessionId) return true;
     const myRank = this.activeSessions.indexOf(this.mySessionId);
     if (myRank < 0) return true; // not registered in the active list yet
-    return hashStr(f.rel) % n === myRank;
+    const idx = this._relIndex.get(f.rel);
+    return idx % n === myRank;
   }
 
   _applyFilter() {
@@ -278,7 +271,7 @@ export class DriveSorter {
     if (!this.rootId) return;
     this.kept = await this._loadState(this.rootId);
     const { files, trashedCount } = await this._scanWithTrash(this.rootId);
-    this.allFiles = files;
+    this._setAllFiles(files);
     this.trashedCount = trashedCount;
   }
 
@@ -289,7 +282,7 @@ export class DriveSorter {
     this.activeSessions = [];
     this.kept = await this._loadState(folderId);
     const { files, trashedCount } = await this._scanWithTrash(folderId);
-    this.allFiles = files;
+    this._setAllFiles(files);
     this.trashedCount = trashedCount;
     this.activeFilters = new Set();
     this.history = [];
@@ -316,7 +309,7 @@ export class DriveSorter {
       }
     }
     const { files, trashedCount } = await this._scanWithTrash(this.rootId);
-    this.allFiles = files;
+    this._setAllFiles(files);
     this.trashedCount = trashedCount;
     this.history = [];
     this._applyFilter();
