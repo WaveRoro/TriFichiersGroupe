@@ -22,6 +22,27 @@ const TEXT_EXT = new Set([
 ]);
 const KIND_ORDER = ["image", "video", "audio", "pdf", "text", "other"];
 
+// Cap on simultaneous Drive API requests while scanning subfolders. Fully
+// unbounded parallelism (one request per subfolder, all at once) can trip
+// Google's automated-traffic protection on folders with many subfolders,
+// which then blocks the account for a while - this keeps most of the speed
+// gain from scanning in parallel without bursting that hard.
+const SCAN_CONCURRENCY = 5;
+
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
+
 function extOf(name) {
   const i = name.lastIndexOf(".");
   return i >= 0 ? name.slice(i).toLowerCase() : "";
@@ -74,20 +95,20 @@ export class DriveSorter {
     const files = [];
     const countRecursive = async (folderId) => {
       const children = await this.drive.listChildren(folderId);
-      const counts = await Promise.all(children.map((c) =>
+      const counts = await mapWithConcurrency(children, SCAN_CONCURRENCY, (c) =>
         c.mimeType === FOLDER_MIME ? countRecursive(c.id) : Promise.resolve(1)
-      ));
+      );
       return counts.reduce((a, b) => a + b, 0);
     };
     // Returns the trash count found within this subtree. Each branch adds
     // its own file(s) to the shared `files` array (safe: push is never split
     // across an await) and returns its own count, summed once via reduce
-    // after Promise.all - summing through a shared `total += await ...`
-    // instead would lose updates, since each branch reads the old total
+    // after all branches settle - summing through a shared `total += await
+    // ...` instead would lose updates, since each branch reads the old total
     // before its own await resolves.
     const walk = async (folderId, relPrefix) => {
       const children = await this.drive.listChildren(folderId);
-      const trashCounts = await Promise.all(children.map(async (child) => {
+      const trashCounts = await mapWithConcurrency(children, SCAN_CONCURRENCY, async (child) => {
         if (child.mimeType === FOLDER_MIME) {
           if (child.name === TRASH_DIRNAME) return countRecursive(child.id);
           return walk(child.id, relPrefix + child.name + "/");
@@ -103,7 +124,7 @@ export class DriveSorter {
           kind: classify(child.name),
         });
         return 0;
-      }));
+      });
       return trashCounts.reduce((a, b) => a + b, 0);
     };
     const trashedCount = await walk(rootId, "");
