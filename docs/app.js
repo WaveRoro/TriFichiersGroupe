@@ -228,7 +228,9 @@ function fmtCounts(data) {
   el("stat-trashed").textContent = data.trashed ?? 0;
   const total = data.total || 1;
   const done = Math.max(total - (data.remaining || 0), 0);
-  el("progress-fill").style.width = Math.min(100, (done / total) * 100) + "%";
+  const percent = Math.min(100, Math.round((done / total) * 100));
+  el("progress-fill").style.width = percent + "%";
+  el("progress-percent").textContent = percent + "%";
   el("btn-undo").disabled = !data.canUndo;
   updateSpeedStats(data.remaining || 0);
   renderFilterBar(data);

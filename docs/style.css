@@ -284,8 +284,14 @@ html, body {
   border-color: var(--accent-blue);
 }
 
-.progress-bar {
+.progress-row {
   margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.progress-bar {
+  flex: 1 1 auto;
   height: 5px;
   background: var(--border);
   border-radius: 3px;
@@ -296,6 +302,14 @@ html, body {
   width: 0%;
   background: var(--accent-blue);
   transition: width .2s ease;
+}
+.progress-percent {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  min-width: 32px;
+  text-align: right;
 }
 
 .stage {
@@ -648,13 +662,29 @@ html, body {
     top: 0; left: 0; right: 0;
     z-index: 20;
     padding: calc(env(safe-area-inset-top, 0px) + 10px) 58px 14px 16px;
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.28) 60%, transparent 100%);
-    -webkit-backdrop-filter: blur(14px);
-    backdrop-filter: blur(14px);
+  }
+  /* The blur itself needs to fade out, not just the tint color - a plain
+     backdrop-filter on a box with a hard edge leaves a visible seam where
+     the blur stops. Putting it on a taller pseudo-element (extending past
+     the bar, into the media below) with a mask-image gradient fades the
+     blur amount smoothly instead of cutting it off. Sits behind the actual
+     text/icons (z-index: -1) so they stay crisp. */
+  .topbar::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 -60px 0;
+    z-index: -1;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.25) 40%, transparent 75%);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    -webkit-mask-image: linear-gradient(to bottom, black 0%, black 45%, transparent 80%);
+    mask-image: linear-gradient(to bottom, black 0%, black 45%, transparent 80%);
   }
   .folder-path, .btn-link { color: rgba(255, 255, 255, 0.92); }
   .stats, .stat-speed { display: none; }
-  .progress-bar { background: rgba(255, 255, 255, 0.25); margin-top: 12px; }
+  .progress-row { margin-top: 12px; }
+  .progress-bar { background: rgba(255, 255, 255, 0.25); }
+  .progress-percent { color: rgba(255, 255, 255, 0.85); }
 
   .stage {
     position: fixed;
@@ -724,10 +754,19 @@ html, body {
     left: 0; right: 0; bottom: 0;
     z-index: 20;
     padding: 18px 22px calc(env(safe-area-inset-bottom, 0px) + 18px);
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.28) 65%, transparent 100%);
-    -webkit-backdrop-filter: blur(14px);
-    backdrop-filter: blur(14px);
     gap: 18px;
+  }
+  /* Same fading-blur technique as .topbar::before, mirrored upward. */
+  .controls::before {
+    content: "";
+    position: absolute;
+    inset: -60px 0 0 0;
+    z-index: -1;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.25) 40%, transparent 75%);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    -webkit-mask-image: linear-gradient(to top, black 0%, black 45%, transparent 80%);
+    mask-image: linear-gradient(to top, black 0%, black 45%, transparent 80%);
   }
   .pillBtn {
     background: rgba(255, 255, 255, 0.14);
