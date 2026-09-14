@@ -46,24 +46,6 @@ export function signIn() {
   });
 }
 
-// Tries to get a token without showing the account picker, reusing prior
-// consent for the current Google session. Must be called from a click
-// handler - Google still opens a (usually instant) popup under the hood,
-// and browsers silently block popups not triggered by a user gesture, which
-// would otherwise leave this promise hanging forever. Rejects (instead of
-// prompting) if that's not possible, and always settles within 8s so the
-// caller can fall back to signIn().
-export function trySilentSignIn() {
-  const attempt = new Promise((resolve, reject) => {
-    pendingResolvers.push({ resolve, reject });
-    tokenClient.requestAccessToken({ prompt: "" });
-  });
-  const timeout = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error("Delai depasse")), 8000);
-  });
-  return Promise.race([attempt, timeout]);
-}
-
 export function getToken() {
   return new Promise((resolve, reject) => {
     if (currentToken && Date.now() < tokenExpiry - 30000) {

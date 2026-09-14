@@ -1,4 +1,4 @@
-import { initAuth, signIn, trySilentSignIn, getToken, signOut } from "./auth.js";
+import { initAuth, signIn, getToken, signOut } from "./auth.js";
 import { DriveApi, extractFolderId } from "./drive.js";
 import { DriveSorter } from "./sorter.js";
 
@@ -216,13 +216,6 @@ function lastFolder() {
 }
 function setLastFolder(id, name) {
   try { localStorage.setItem("lastFolder", JSON.stringify({ id, name })); } catch (e) {}
-}
-
-function wasSignedIn() {
-  try { return localStorage.getItem("wasSignedIn") === "1"; } catch (e) { return false; }
-}
-function setWasSignedIn(v) {
-  try { localStorage.setItem("wasSignedIn", v ? "1" : "0"); } catch (e) {}
 }
 
 // ---------- rendering ----------
@@ -529,7 +522,7 @@ async function init() {
   el("btn-restart-folder").addEventListener("click", doRestartFolder);
   el("btn-open-folder").addEventListener("click", handleFolderSubmit);
   el("folder-input").addEventListener("keydown", (e) => { if (e.key === "Enter") handleFolderSubmit(); });
-  el("btn-signout").addEventListener("click", () => { signOut(); setWasSignedIn(false); showScreen("signin"); });
+  el("btn-signout").addEventListener("click", () => { signOut(); showScreen("signin"); });
 
   setupDrag();
   setupKeys();
@@ -547,30 +540,13 @@ async function init() {
   el("btn-signin").addEventListener("click", async () => {
     setHidden(el("signin-error"), true);
     try {
-      // If we know this browser signed in before, try to reuse that Google
-      // session first (no account picker, usually instant). This MUST stay
-      // behind a real click - browsers block the Google popup if it's
-      // triggered automatically on page load instead of by a user gesture.
-      if (wasSignedIn()) {
-        try {
-          await trySilentSignIn();
-        } catch (e) {
-          await signIn();
-        }
-      } else {
-        await signIn();
-      }
-      setWasSignedIn(true);
+      await signIn();
       afterSignIn();
     } catch (e) {
       el("signin-error").textContent = "Connexion refusee ou impossible.";
       setHidden(el("signin-error"), false);
     }
   });
-
-  if (wasSignedIn()) {
-    el("btn-signin").textContent = "Se reconnecter";
-  }
 
   showScreen("signin");
 }
