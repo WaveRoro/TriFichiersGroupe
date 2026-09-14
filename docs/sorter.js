@@ -264,6 +264,14 @@ export class DriveSorter {
     return this._fileInfo(this.queue[i]);
   }
 
+  // Lightweight lookahead (id + kind only, no thumbnail/status work) used to
+  // prefetch several files ahead instead of just the very next one.
+  upcoming(n) {
+    if (!this.rootId) return [];
+    const end = Math.min(this.index + 1 + n, this.queue.length);
+    return this.queue.slice(this.index + 1, end).map((f) => ({ id: f.id, kind: f.kind }));
+  }
+
   async accept() {
     if (!this.rootId || this.index >= this.queue.length) return this.current();
     const f = this.queue[this.index];

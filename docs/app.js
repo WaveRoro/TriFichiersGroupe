@@ -201,6 +201,7 @@ async function toggleFilter(kind, currentActive) {
   if (busy) return;
   const next = new Set(currentActive);
   if (next.has(kind)) next.delete(kind); else next.add(kind);
+  clearBlobCache();
   const result = await sorter.setFilters(Array.from(next));
   resetSpeedStats();
   render(result);
@@ -242,6 +243,12 @@ function getBlob(id) {
     blobCache.set(id, drive.mediaBlob(id).catch((e) => { blobCache.delete(id); throw e; }));
   }
   return blobCache.get(id);
+}
+// Called whenever the queue is rebuilt from scratch (new folder, filter
+// change, restart) so prefetches for files that are no longer upcoming
+// don't sit in memory forever.
+function clearBlobCache() {
+  blobCache.clear();
 }
 
 // Object URL currently assigned to the visible media element. Revoked and
@@ -358,13 +365,25 @@ async function render(data) {
   preload();
 }
 
+// How many upcoming files to keep prefetched, and how many of those fetch
+// at once. Deeper prefetch means fewer waits when swiping fast, but these
+// are full original-quality files (not compressed streaming chunks like
+// TikTok/Instagram use) - too deep a buffer risks a lot of memory/bandwidth
+// spent on files that might get rejected/skipped without ever being viewed.
+const PRELOAD_DEPTH = 5;
+const PRELOAD_CONCURRENCY = 2;
+
 function preload() {
-  sorter.peekNext().then((next) => {
-    if (!next || next.done) return;
-    if (next.kind === "image" || next.kind === "video" || next.kind === "audio") {
-      getBlob(next.id).catch(() => {});
-    }
-  }).catch(() => {});
+  const items = sorter.upcoming(PRELOAD_DEPTH).filter(
+    (f) => f.kind === "image" || f.kind === "video" || f.kind === "audio"
+  );
+  let i = 0;
+  const runNext = () => {
+    if (i >= items.length) return;
+    const item = items[i++];
+    getBlob(item.id).catch(() => {}).then(runNext);
+  };
+  for (let k = 0; k < PRELOAD_CONCURRENCY; k++) runNext();
 }
 
 // ---------- actions ----------
@@ -417,6 +436,7 @@ async function doUndo() {
 }
 
 async function doRestartFolder() {
+  clearBlobCache();
   const data = await sorter.resetProgress();
   resetSpeedStats();
   showScreen("app");
@@ -435,6 +455,7 @@ async function openFolder(folderId, name) {
     el("folder-path").textContent = folderName;
     el("folder-path").title = folderName;
     resetSpeedStats();
+    clearBlobCache();
     const result = await sorter.loadFolder(folderId, folderName);
     showScreen("app");
     render(result);
