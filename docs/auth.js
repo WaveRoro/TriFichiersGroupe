@@ -39,7 +39,10 @@ export function initAuth(clientId) {
 export function signIn() {
   return new Promise((resolve, reject) => {
     pendingResolvers.push({ resolve, reject });
-    tokenClient.requestAccessToken({ prompt: "consent" });
+    // "select_account" forces Google to show the account chooser instead of
+    // silently reusing whichever Google account the browser last used - important
+    // for people signed into several Google accounts at once.
+    tokenClient.requestAccessToken({ prompt: "select_account consent" });
   });
 }
 
