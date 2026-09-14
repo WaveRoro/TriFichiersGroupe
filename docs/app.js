@@ -215,16 +215,54 @@ const sorter = new DriveSorter(drive);
 sorter.onError = (msg) => toast(msg);
 
 const presence = new Presence(drive);
-let lastPeopleCount = 1;
+// null until the folder's very first presence check resolves - that first
+// resolution just silently sets the initial split (openFolder() is holding
+// on it before it ever shows the app screen), no pause needed. Every
+// resolution AFTER that represents someone actually joining or leaving
+// while people are already sorting, which does get the visible pause.
+let lastPeopleCount = null;
+let reorganizing = false;
+
+function setControlsDisabled(disabled) {
+  el("btn-accept").disabled = disabled;
+  el("btn-reject").disabled = disabled;
+  el("btn-skip").disabled = disabled;
+  if (!disabled) el("btn-undo").disabled = !sorter.history.length;
+  else el("btn-undo").disabled = true;
+}
+
+async function pauseForReorg(newCount, oldCount) {
+  reorganizing = true;
+  setControlsDisabled(true);
+  el("reorg-message").textContent = newCount > oldCount
+    ? "Quelqu'un rejoint le tri - repartition des fichiers..."
+    : "Quelqu'un a quitte le tri - repartition des fichiers...";
+  setHidden(el("reorg-overlay"), false);
+  // Purely a UX pace-setter (the recompute itself is instant) - long enough
+  // to read as a deliberate step rather than a flicker.
+  await new Promise((r) => setTimeout(r, 1600));
+}
+
+function endReorg() {
+  reorganizing = false;
+  setHidden(el("reorg-overlay"), true);
+  setControlsDisabled(false);
+}
+
 presence.onChange = async (active) => {
-  sorter.setPresence(presence.sessionId, active);
-  if (active.length !== lastPeopleCount) {
+  if (lastPeopleCount === null) {
+    // Initial resolution for this folder - openFolder() is waiting on this
+    // before it shows the app screen at all, so nobody sees a "before" state.
+    sorter.setPresence(presence.sessionId, active);
     lastPeopleCount = active.length;
-    toast(active.length > 1
-      ? `${active.length} personnes trient ce dossier - fichiers repartis entre vous`
-      : "Tu es seul(e) sur ce dossier - tu vois a nouveau tous les fichiers");
+    return;
   }
+  const oldCount = lastPeopleCount;
+  lastPeopleCount = active.length;
+  await pauseForReorg(active.length, oldCount);
+  sorter.setPresence(presence.sessionId, active);
   render(await sorter.current());
+  endReorg();
 };
 window.addEventListener("beforeunload", () => presence.stop());
 
@@ -436,7 +474,7 @@ function animateSkip(cb) {
 }
 
 async function decide(action) {
-  if (busy || !current) return;
+  if (busy || reorganizing || !current) return;
   busy = true;
   animateOut(action, async () => {
     const data = action === "accept" ? await sorter.accept() : await sorter.reject();
@@ -447,7 +485,7 @@ async function decide(action) {
 }
 
 async function doSkip() {
-  if (busy || !current) return;
+  if (busy || reorganizing || !current) return;
   busy = true;
   animateSkip(async () => {
     const data = await sorter.skipNow();
@@ -457,7 +495,7 @@ async function doSkip() {
 }
 
 async function doUndo() {
-  if (busy) return;
+  if (busy || reorganizing) return;
   busy = true;
   const data = await sorter.undo();
   render(data);
@@ -485,11 +523,16 @@ async function openFolder(folderId, name) {
     el("folder-path").title = folderName;
     resetSpeedStats();
     clearBlobCache();
-    lastPeopleCount = 1;
-    const result = await sorter.loadFolder(folderId, folderName);
+    lastPeopleCount = null;
+    await sorter.loadFolder(folderId, folderName);
+    // Wait for the first presence check (and its silent initial split -
+    // see presence.onChange) before showing anything, so someone joining a
+    // folder that's already being sorted never briefly sees the full,
+    // unsplit list before their real share is known.
+    el("loading-text").textContent = "Verification des autres participants...";
+    await presence.start(folderId);
     showScreen("app");
-    render(result);
-    presence.start(folderId).catch(() => {});
+    render(await sorter.current());
   } catch (e) {
     setHidden(el("folder-error"), false);
     el("folder-error").textContent = "Impossible d'ouvrir ce dossier : " + e.message;

@@ -1,12 +1,12 @@
 import { PRESENCE_FILENAME } from "./sorter.js";
 
-const HEARTBEAT_MS = 15000;
+const HEARTBEAT_MS = 10000;
 // A session is considered gone after missing ~3 heartbeats. There is no way
 // to reliably detect a closed tab with only Drive as a backend (no
 // server-sent events, and sendBeacon can't carry the Authorization header
 // Drive's API needs) - so "someone left" is only ever detected this way,
 // with this delay, rather than instantly.
-const STALE_MS = 45000;
+const STALE_MS = 30000;
 
 function randomId() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
@@ -100,7 +100,10 @@ export class Presence {
     const key = active.join(",");
     if (key !== this._lastKey) {
       this._lastKey = key;
-      if (this.onChange) this.onChange(active);
+      // Awaited deliberately: callers (start(), and the periodic poll timer)
+      // rely on this fully finishing - e.g. a caller waiting on start() to
+      // know the initial file split is ready - before moving on.
+      if (this.onChange) await this.onChange(active);
     }
   }
 }

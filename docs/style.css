@@ -654,6 +654,45 @@ html, body {
   max-width: 90vw;
 }
 
+.reorg-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(10, 10, 14, 0.55);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.reorg-box {
+  background: var(--panel);
+  color: var(--text);
+  padding: 26px 32px;
+  border-radius: 16px;
+  text-align: center;
+  box-shadow: 0 12px 44px var(--shadow-color);
+  max-width: 280px;
+}
+.reorg-box p {
+  margin: 14px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.spinner {
+  width: 30px;
+  height: 30px;
+  margin: 0 auto;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ---------- Mobile: media fills the screen, controls float over it ---------- */
 @media (max-width: 640px) {
   #app-screen {
