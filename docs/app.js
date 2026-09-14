@@ -547,7 +547,19 @@ async function init() {
   el("btn-signin").addEventListener("click", async () => {
     setHidden(el("signin-error"), true);
     try {
-      await signIn();
+      // If we know this browser signed in before, try to reuse that Google
+      // session first (no account picker, usually instant). This MUST stay
+      // behind a real click - browsers block the Google popup if it's
+      // triggered automatically on page load instead of by a user gesture.
+      if (wasSignedIn()) {
+        try {
+          await trySilentSignIn();
+        } catch (e) {
+          await signIn();
+        }
+      } else {
+        await signIn();
+      }
       setWasSignedIn(true);
       afterSignIn();
     } catch (e) {
@@ -557,16 +569,7 @@ async function init() {
   });
 
   if (wasSignedIn()) {
-    el("loading-text").textContent = "Reconnexion...";
-    showScreen("loading");
-    try {
-      await trySilentSignIn();
-      setWasSignedIn(true);
-      afterSignIn();
-      return;
-    } catch (e) {
-      setWasSignedIn(false);
-    }
+    el("btn-signin").textContent = "Se reconnecter";
   }
 
   showScreen("signin");
