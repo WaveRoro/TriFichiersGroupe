@@ -85,6 +85,12 @@ export class DriveSorter {
     this.trashedCount = 0;
     this.stateFileId = null;
     this.trashFolderCache = new Map(); // parentId -> trash folder id
+    this.trashNamesCache = new Map(); // trashFolderId -> Set<name currently in it>
+    // Chain of pending state-file writes, so accept() can save progress in
+    // the background (without blocking the UI on the round trip) while
+    // still guaranteeing writes land in order - awaiting each one directly
+    // would let a slow write finish after a later, newer one and clobber it.
+    this.saveQueue = Promise.resolve();
   }
 
   // Walks the whole folder tree once, collecting real files and counting
@@ -258,7 +264,9 @@ export class DriveSorter {
     if (!this.rootId || this.index >= this.queue.length) return this.current();
     const f = this.queue[this.index];
     this.kept.add(f.rel);
-    await this._saveState();
+    // Save in the background - the next card doesn't need to wait on this
+    // network round trip, and saveQueue keeps writes landing in order.
+    this.saveQueue = this.saveQueue.then(() => this._saveState()).catch(() => {});
     this.history.push({ type: "accept", rel: f.rel });
     this.index += 1;
     return this.current();
@@ -283,16 +291,28 @@ export class DriveSorter {
     return trash.id;
   }
 
+  // Only lists the folder's contents once per session (the first time a
+  // file gets rejected into it) and tracks additions ourselves after that -
+  // re-listing before every single reject added a full round trip to every
+  // "refuser" click for no reason, since we already know what we put there.
   async _uniqueNameIn(folderId, name) {
-    const children = await this.drive.listChildren(folderId);
-    const existing = new Set(children.map((c) => c.name));
-    if (!existing.has(name)) return name;
-    const dot = name.lastIndexOf(".");
-    const stem = dot > 0 ? name.slice(0, dot) : name;
-    const ext = dot > 0 ? name.slice(dot) : "";
-    let n = 1;
-    while (existing.has(`${stem} (${n})${ext}`)) n += 1;
-    return `${stem} (${n})${ext}`;
+    let existing = this.trashNamesCache.get(folderId);
+    if (!existing) {
+      const children = await this.drive.listChildren(folderId);
+      existing = new Set(children.map((c) => c.name));
+      this.trashNamesCache.set(folderId, existing);
+    }
+    let finalName = name;
+    if (existing.has(name)) {
+      const dot = name.lastIndexOf(".");
+      const stem = dot > 0 ? name.slice(0, dot) : name;
+      const ext = dot > 0 ? name.slice(dot) : "";
+      let n = 1;
+      while (existing.has(`${stem} (${n})${ext}`)) n += 1;
+      finalName = `${stem} (${n})${ext}`;
+    }
+    existing.add(finalName);
+    return finalName;
   }
 
   async reject() {
@@ -326,7 +346,7 @@ export class DriveSorter {
     if (action.type === "accept") {
       if (this.index > 0) this.index -= 1;
       this.kept.delete(action.rel);
-      await this._saveState();
+      await (this.saveQueue = this.saveQueue.then(() => this._saveState()));
     } else if (action.type === "reject") {
       if (this.index > 0) this.index -= 1;
       try {
@@ -335,6 +355,8 @@ export class DriveSorter {
           await this.drive.renameFile(action.fileId, action.originalName);
         }
         this.trashedCount = Math.max(this.trashedCount - 1, 0);
+        const names = this.trashNamesCache.get(action.toParentId);
+        if (names) names.delete(action.finalName);
       } catch {
         // ignore
       }

@@ -360,7 +360,7 @@ async function render(data) {
 function preload() {
   sorter.peekNext().then((next) => {
     if (!next || next.done) return;
-    if (next.kind === "image") {
+    if (next.kind === "image" || next.kind === "video" || next.kind === "audio") {
       getBlob(next.id).catch(() => {});
     }
   }).catch(() => {});
