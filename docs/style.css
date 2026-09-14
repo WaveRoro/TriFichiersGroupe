@@ -259,6 +259,13 @@ html, body {
   color: var(--muted);
 }
 
+.stat-people {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-blue);
+}
+
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
@@ -681,6 +688,7 @@ html, body {
     mask-image: linear-gradient(to bottom, black 0%, black 45%, transparent 80%);
   }
   .folder-path, .btn-link { color: rgba(255, 255, 255, 0.92); }
+  .stat-people { color: rgba(140, 180, 255, 0.95); }
   .stats, .stat-speed { display: none; }
   .progress-row { margin-top: 12px; }
   .progress-bar { background: rgba(255, 255, 255, 0.25); }

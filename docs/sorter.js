@@ -1,4 +1,5 @@
 const STATE_FILENAME = ".photosorter_state.json";
+export const PRESENCE_FILENAME = ".photosorter_presence.json";
 const TRASH_DIRNAME = "_trash";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 
@@ -58,6 +59,26 @@ export function classify(name) {
   return "other";
 }
 
+// Deterministic string hash, used to assign each file to one active session
+// without needing the same array ordering on every client - only the file's
+// own stable path and the shared sorted session-id list matter. Plain djb2
+// alone produces an arithmetic progression for sequential filenames (which
+// camera-generated names like IMG_0001.jpg, IMG_0002.jpg... always are),
+// and an arithmetic progression can collide catastrophically against a
+// small modulus (caught via a mocked 3-way split test where every single
+// file landed on the same person) - the extra avalanche mixing below
+// (MurmurHash3's finalizer) breaks up that structure before the modulo.
+function hashStr(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
 export function humanSize(n) {
   let size = Number(n) || 0;
   const units = ["o", "Ko", "Mo", "Go", "To"];
@@ -95,6 +116,12 @@ export class DriveSorter {
     // (the actual file move) fails after we've already moved on to the next
     // card - set by the UI to surface it (e.g. as a toast).
     this.onError = null;
+    // Multi-user work splitting: when more than one session is active on
+    // this folder, each pending file is assigned to exactly one of them
+    // (see _applyFilter) so everyone works through a different slice
+    // instead of all seeing the same files in the same order.
+    this.mySessionId = null;
+    this.activeSessions = []; // sorted session ids, set via setPresence()
   }
 
   // Walks the whole folder tree once, collecting real files and counting
@@ -123,7 +150,7 @@ export class DriveSorter {
           if (child.name === TRASH_DIRNAME) return countRecursive(child.id);
           return walk(child.id, relPrefix + child.name + "/");
         }
-        if (child.name === STATE_FILENAME) return 0;
+        if (child.name === STATE_FILENAME || child.name === PRESENCE_FILENAME) return 0;
         files.push({
           id: child.id,
           name: child.name,
@@ -174,18 +201,47 @@ export class DriveSorter {
     return KIND_ORDER.filter((k) => kinds.has(k));
   }
 
+  // True if this file falls in my slice of the folder when several sessions
+  // are sorting it at once - a stable hash of the file's own path decides,
+  // so every client reaches the same answer without needing to agree on
+  // array ordering, just on the same sorted list of active session ids.
+  _isMine(f) {
+    const n = this.activeSessions.length;
+    if (n <= 1 || !this.mySessionId) return true;
+    const myRank = this.activeSessions.indexOf(this.mySessionId);
+    if (myRank < 0) return true; // not registered in the active list yet
+    return hashStr(f.rel) % n === myRank;
+  }
+
   _applyFilter() {
-    const filtered = this.activeFilters.size === 0
+    let filtered = this.activeFilters.size === 0
       ? this.allFiles
       : this.allFiles.filter((f) => this.activeFilters.has(f.kind));
+    filtered = filtered.filter((f) => this._isMine(f));
     this.totalFound = filtered.length;
     this.queue = filtered.filter((f) => !this.kept.has(f.rel));
     this.index = 0;
   }
 
+  // Called by the UI whenever the set of people currently sorting this
+  // folder changes. Re-splits the pending files immediately: shrinks my
+  // queue if someone new just joined, grows it back if someone left. Files
+  // already decided (kept or moved to trash) are unaffected either way -
+  // only what's still pending gets reshuffled.
+  setPresence(mySessionId, activeSessionIds) {
+    this.mySessionId = mySessionId;
+    this.activeSessions = [...activeSessionIds].sort();
+    if (this.rootId) {
+      this.history = [];
+      this._applyFilter();
+    }
+  }
+
   async loadFolder(folderId, folderName) {
     this.rootId = folderId;
     this.rootName = folderName || folderId;
+    this.mySessionId = null;
+    this.activeSessions = [];
     this.kept = await this._loadState(folderId);
     const { files, trashedCount } = await this._scanWithTrash(folderId);
     this.allFiles = files;
@@ -234,6 +290,7 @@ export class DriveSorter {
       canUndo: this.history.length > 0,
       availableKinds: this._availableKinds(),
       activeFilters: Array.from(this.activeFilters),
+      peopleCount: this.activeSessions.length,
     };
   }
 

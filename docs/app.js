@@ -1,6 +1,7 @@
 import { initAuth, signIn, getToken, signOut } from "./auth.js";
 import { DriveApi, extractFolderId } from "./drive.js";
 import { DriveSorter } from "./sorter.js";
+import { Presence } from "./presence.js";
 
 // Fill in with the Client ID from Google Cloud Console (Credentials > OAuth client ID).
 const CLIENT_ID = "917711651027-r9gt2l06bn0mdcd5n7kctbjd2m0lhihk.apps.googleusercontent.com";
@@ -213,6 +214,20 @@ const drive = new DriveApi(getToken);
 const sorter = new DriveSorter(drive);
 sorter.onError = (msg) => toast(msg);
 
+const presence = new Presence(drive);
+let lastPeopleCount = 1;
+presence.onChange = async (active) => {
+  sorter.setPresence(presence.sessionId, active);
+  if (active.length !== lastPeopleCount) {
+    lastPeopleCount = active.length;
+    toast(active.length > 1
+      ? `${active.length} personnes trient ce dossier - fichiers repartis entre vous`
+      : "Tu es seul(e) sur ce dossier - tu vois a nouveau tous les fichiers");
+  }
+  render(await sorter.current());
+};
+window.addEventListener("beforeunload", () => presence.stop());
+
 function lastFolder() {
   try { return JSON.parse(localStorage.getItem("lastFolder") || "null"); } catch (e) { return null; }
 }
@@ -234,6 +249,13 @@ function fmtCounts(data) {
   el("btn-undo").disabled = !data.canUndo;
   updateSpeedStats(data.remaining || 0);
   renderFilterBar(data);
+  const peopleEl = el("stat-people");
+  if (data.peopleCount > 1) {
+    peopleEl.textContent = `${data.peopleCount} personnes trient ce dossier en ce moment`;
+    setHidden(peopleEl, false);
+  } else {
+    setHidden(peopleEl, true);
+  }
 }
 
 // Blob cache keyed by file id, used to preload the next file's image while
@@ -463,9 +485,11 @@ async function openFolder(folderId, name) {
     el("folder-path").title = folderName;
     resetSpeedStats();
     clearBlobCache();
+    lastPeopleCount = 1;
     const result = await sorter.loadFolder(folderId, folderName);
     showScreen("app");
     render(result);
+    presence.start(folderId).catch(() => {});
   } catch (e) {
     setHidden(el("folder-error"), false);
     el("folder-error").textContent = "Impossible d'ouvrir ce dossier : " + e.message;
@@ -574,12 +598,12 @@ async function init() {
       toast("Impossible d'ouvrir le fichier.");
     }
   });
-  el("btn-choose-again").addEventListener("click", () => { showScreen("folder"); loadFolderList(); });
-  el("btn-change-folder").addEventListener("click", () => { showScreen("folder"); loadFolderList(); });
+  el("btn-choose-again").addEventListener("click", () => { presence.stop(); showScreen("folder"); loadFolderList(); });
+  el("btn-change-folder").addEventListener("click", () => { presence.stop(); showScreen("folder"); loadFolderList(); });
   el("btn-restart-folder").addEventListener("click", doRestartFolder);
   el("btn-open-folder").addEventListener("click", handleFolderSubmit);
   el("folder-input").addEventListener("keydown", (e) => { if (e.key === "Enter") handleFolderSubmit(); });
-  el("btn-signout").addEventListener("click", () => { signOut(); showScreen("signin"); });
+  el("btn-signout").addEventListener("click", () => { presence.stop(); signOut(); showScreen("signin"); });
 
   setupDrag();
   setupKeys();
