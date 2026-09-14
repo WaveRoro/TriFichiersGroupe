@@ -517,8 +517,8 @@ async function init() {
   el("btn-open-external").addEventListener("click", () => {
     if (current && current.url) window.open(current.url, "_blank", "noopener");
   });
-  el("btn-choose-again").addEventListener("click", () => showScreen("folder"));
-  el("btn-change-folder").addEventListener("click", () => showScreen("folder"));
+  el("btn-choose-again").addEventListener("click", () => { showScreen("folder"); loadFolderList(); });
+  el("btn-change-folder").addEventListener("click", () => { showScreen("folder"); loadFolderList(); });
   el("btn-restart-folder").addEventListener("click", doRestartFolder);
   el("btn-open-folder").addEventListener("click", handleFolderSubmit);
   el("folder-input").addEventListener("keydown", (e) => { if (e.key === "Enter") handleFolderSubmit(); });
@@ -558,6 +558,40 @@ function afterSignIn() {
     btn.onclick = () => openFolder(recent.id, recent.name);
   }
   showScreen("folder");
+  loadFolderList();
+}
+
+async function loadFolderList() {
+  const statusEl = el("folder-list-status");
+  const listEl = el("folder-list");
+  statusEl.textContent = "Recherche de tes dossiers Drive...";
+  setHidden(statusEl, false);
+  listEl.innerHTML = "";
+  try {
+    const folders = await drive.listAccessibleFolders();
+    if (!folders.length) {
+      statusEl.textContent = "Aucun dossier trouve (verifie qu'il a bien ete partage avec toi).";
+      return;
+    }
+    setHidden(statusEl, true);
+    for (const f of folders) {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "folder-list-item";
+      item.innerHTML = `<span>${escapeHtml(f.name)}</span>` +
+        (f.owner ? `<span class="owner">${escapeHtml(f.owner)}</span>` : "");
+      item.addEventListener("click", () => openFolder(f.id, f.name));
+      listEl.appendChild(item);
+    }
+  } catch (e) {
+    statusEl.textContent = "Impossible de lister les dossiers (" + e.message + "). Utilise le lien direct ci-dessous.";
+  }
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
 }
 
 window.addEventListener("DOMContentLoaded", init);

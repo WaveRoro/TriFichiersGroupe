@@ -28,14 +28,18 @@
 <div id="folder-screen" class="screen" hidden>
   <div class="start-box">
     <h1>Choisir un dossier</h1>
-    <p>Colle le lien du dossier Google Drive partage avec toi.</p>
-    <input id="folder-input" class="folder-input" type="text" placeholder="https://drive.google.com/drive/folders/...">
-    <button id="btn-open-folder" class="btn btn-primary btn-big">Ouvrir</button>
-    <p id="folder-error" class="hint" style="color:var(--accent-red)" hidden></p>
     <div id="recent-wrap" class="recent-wrap" hidden>
       <div class="recent-label">Dernier dossier :</div>
       <button id="btn-recent" class="btn btn-secondary"></button>
     </div>
+    <p id="folder-list-status" class="hint">Recherche de tes dossiers Drive...</p>
+    <div id="folder-list" class="folder-list"></div>
+    <details class="folder-fallback">
+      <summary class="btn-link">Le dossier n'apparait pas ? Colle un lien directement</summary>
+      <input id="folder-input" class="folder-input" type="text" placeholder="https://drive.google.com/drive/folders/...">
+      <button id="btn-open-folder" class="btn btn-primary btn-big">Ouvrir</button>
+    </details>
+    <p id="folder-error" class="hint" style="color:var(--accent-red)" hidden></p>
     <button id="btn-signout" class="btn-link" style="margin-top:20px">Se deconnecter</button>
   </div>
 </div>

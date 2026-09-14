@@ -41,6 +41,45 @@ export class DriveApi {
     return items;
   }
 
+  async _listFolders(query) {
+    const items = [];
+    let pageToken = "";
+    do {
+      const params = new URLSearchParams({
+        q: query,
+        fields: "nextPageToken, files(id, name, owners(displayName))",
+        pageSize: "200",
+        spaces: "drive",
+      });
+      if (pageToken) params.set("pageToken", pageToken);
+      const res = await this._fetch(`${API_BASE}/files?${params.toString()}`);
+      const data = await res.json();
+      items.push(...data.files);
+      pageToken = data.nextPageToken || "";
+    } while (pageToken);
+    return items;
+  }
+
+  // Folders the signed-in user can open without needing a pasted link:
+  // ones they own at the root of their own Drive, plus ones someone else
+  // has shared directly with them.
+  async listAccessibleFolders() {
+    const FOLDER_Q = "mimeType = 'application/vnd.google-apps.folder' and trashed = false";
+    const [own, shared] = await Promise.all([
+      this._listFolders(`'root' in parents and ${FOLDER_Q}`),
+      this._listFolders(`sharedWithMe = true and ${FOLDER_Q}`),
+    ]);
+    const seen = new Set();
+    const merged = [];
+    for (const f of [...own, ...shared]) {
+      if (seen.has(f.id)) continue;
+      seen.add(f.id);
+      merged.push({ id: f.id, name: f.name, owner: f.owners?.[0]?.displayName || "" });
+    }
+    merged.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    return merged;
+  }
+
   async getFolderMeta(folderId) {
     const params = new URLSearchParams({ fields: "id, name, mimeType" });
     const res = await this._fetch(`${API_BASE}/files/${folderId}?${params.toString()}`);
