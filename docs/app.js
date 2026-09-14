@@ -210,6 +210,7 @@ async function toggleFilter(kind, currentActive) {
 
 const drive = new DriveApi(getToken);
 const sorter = new DriveSorter(drive);
+sorter.onError = (msg) => toast(msg);
 
 function lastFolder() {
   try { return JSON.parse(localStorage.getItem("lastFolder") || "null"); } catch (e) { return null; }
@@ -390,20 +391,9 @@ async function decide(action) {
   if (busy || !current) return;
   busy = true;
   animateOut(action, async () => {
-    if (action === "accept") {
-      const data = await sorter.accept();
-      recordDecision();
-      render(data);
-    } else {
-      const result = await sorter.reject();
-      if (result && result.error) {
-        toast(result.error);
-        render(await sorter.current());
-      } else {
-        recordDecision();
-        render(result);
-      }
-    }
+    const data = action === "accept" ? await sorter.accept() : await sorter.reject();
+    recordDecision();
+    render(data);
     busy = false;
   });
 }

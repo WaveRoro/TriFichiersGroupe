@@ -91,6 +91,10 @@ export class DriveSorter {
     // still guaranteeing writes land in order - awaiting each one directly
     // would let a slow write finish after a later, newer one and clobber it.
     this.saveQueue = Promise.resolve();
+    // Optional callback: (message) => void, called when a background reject
+    // (the actual file move) fails after we've already moved on to the next
+    // card - set by the UI to surface it (e.g. as a toast).
+    this.onError = null;
   }
 
   // Walks the whole folder tree once, collecting real files and counting
@@ -280,28 +284,34 @@ export class DriveSorter {
     return this.current();
   }
 
-  async _getOrCreateTrashFolder(parentId) {
-    if (this.trashFolderCache.has(parentId)) return this.trashFolderCache.get(parentId);
-    const children = await this.drive.listChildren(parentId);
-    let trash = children.find((c) => c.mimeType === FOLDER_MIME && c.name === TRASH_DIRNAME);
-    if (!trash) {
-      trash = await this.drive.createFolder(TRASH_DIRNAME, parentId);
+  // Caches the in-flight promise (not just the resolved id) so that two
+  // rejects landing in the same brand-new parent folder before either has
+  // finished share one creation instead of racing to create two "_trash"
+  // folders.
+  _getOrCreateTrashFolder(parentId) {
+    if (!this.trashFolderCache.has(parentId)) {
+      this.trashFolderCache.set(parentId, (async () => {
+        const children = await this.drive.listChildren(parentId);
+        let trash = children.find((c) => c.mimeType === FOLDER_MIME && c.name === TRASH_DIRNAME);
+        if (!trash) trash = await this.drive.createFolder(TRASH_DIRNAME, parentId);
+        return trash.id;
+      })());
     }
-    this.trashFolderCache.set(parentId, trash.id);
-    return trash.id;
+    return this.trashFolderCache.get(parentId);
   }
 
   // Only lists the folder's contents once per session (the first time a
   // file gets rejected into it) and tracks additions ourselves after that -
   // re-listing before every single reject added a full round trip to every
   // "refuser" click for no reason, since we already know what we put there.
+  // Same in-flight-promise caching as above, for the same reason.
   async _uniqueNameIn(folderId, name) {
-    let existing = this.trashNamesCache.get(folderId);
-    if (!existing) {
-      const children = await this.drive.listChildren(folderId);
-      existing = new Set(children.map((c) => c.name));
-      this.trashNamesCache.set(folderId, existing);
+    if (!this.trashNamesCache.has(folderId)) {
+      this.trashNamesCache.set(folderId, this.drive.listChildren(folderId).then(
+        (children) => new Set(children.map((c) => c.name))
+      ));
     }
+    const existing = await this.trashNamesCache.get(folderId);
     let finalName = name;
     if (existing.has(name)) {
       const dot = name.lastIndexOf(".");
@@ -315,27 +325,33 @@ export class DriveSorter {
     return finalName;
   }
 
+  async _moveToTrash(f, action) {
+    const trashId = await this._getOrCreateTrashFolder(f.parentId);
+    const finalName = await this._uniqueNameIn(trashId, f.name);
+    if (finalName !== f.name) await this.drive.renameFile(f.id, finalName);
+    await this.drive.moveFile(f.id, f.parentId, trashId);
+    action.toParentId = trashId;
+    action.finalName = finalName;
+  }
+
+  // Advances to the next card immediately and moves the file in the
+  // background, instead of blocking every "refuser" on the move completing -
+  // that round trip was the main remaining delay after accept() was made
+  // non-blocking. If the move fails, we can't cleanly roll back an index the
+  // user has likely already moved past, so we just surface the error via
+  // onError instead. undo() awaits action.pending, so it can't run before
+  // we know whether the move actually happened.
   async reject() {
     if (!this.rootId || this.index >= this.queue.length) return this.current();
     const f = this.queue[this.index];
-    try {
-      const trashId = await this._getOrCreateTrashFolder(f.parentId);
-      const finalName = await this._uniqueNameIn(trashId, f.name);
-      if (finalName !== f.name) await this.drive.renameFile(f.id, finalName);
-      await this.drive.moveFile(f.id, f.parentId, trashId);
-      this.history.push({
-        type: "reject",
-        rel: f.rel,
-        fileId: f.id,
-        fromParentId: f.parentId,
-        toParentId: trashId,
-        originalName: f.name,
-        finalName,
-      });
-      this.trashedCount += 1;
-    } catch (e) {
-      return { error: `Impossible de deplacer le fichier : ${e.message}`, done: false, ...this._status() };
-    }
+    const action = { type: "reject", rel: f.rel, fileId: f.id, fromParentId: f.parentId, originalName: f.name };
+    action.pending = this._moveToTrash(f, action).catch((e) => {
+      action.failed = true;
+      this.trashedCount = Math.max(this.trashedCount - 1, 0);
+      if (this.onError) this.onError(`Impossible de deplacer "${f.name}" : ${e.message}`);
+    });
+    this.history.push(action);
+    this.trashedCount += 1;
     this.index += 1;
     return this.current();
   }
@@ -349,16 +365,21 @@ export class DriveSorter {
       await (this.saveQueue = this.saveQueue.then(() => this._saveState()));
     } else if (action.type === "reject") {
       if (this.index > 0) this.index -= 1;
-      try {
-        await this.drive.moveFile(action.fileId, action.toParentId, action.fromParentId);
-        if (action.finalName !== action.originalName) {
-          await this.drive.renameFile(action.fileId, action.originalName);
+      if (action.pending) await action.pending; // wait until we know if the move actually happened
+      if (action.failed) {
+        // Never actually moved (and trashedCount was already corrected there) - nothing to undo.
+      } else {
+        try {
+          await this.drive.moveFile(action.fileId, action.toParentId, action.fromParentId);
+          if (action.finalName !== action.originalName) {
+            await this.drive.renameFile(action.fileId, action.originalName);
+          }
+          this.trashedCount = Math.max(this.trashedCount - 1, 0);
+          const namesPromise = this.trashNamesCache.get(action.toParentId);
+          if (namesPromise) (await namesPromise).delete(action.finalName);
+        } catch {
+          // ignore
         }
-        this.trashedCount = Math.max(this.trashedCount - 1, 0);
-        const names = this.trashNamesCache.get(action.toParentId);
-        if (names) names.delete(action.finalName);
-      } catch {
-        // ignore
       }
     } else if (action.type === "skip") {
       const item = this.queue.pop();
