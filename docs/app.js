@@ -261,6 +261,11 @@ function loadMediaSrc(el, id, errBox, afterSet) {
     blobCache.delete(id);
     if (liveObjectUrl) URL.revokeObjectURL(liveObjectUrl);
     liveObjectUrl = URL.createObjectURL(blob);
+    // Clearing src before reassigning it works around a Safari quirk where
+    // reusing the same <img>/<video> element for a new blob: URL sometimes
+    // doesn't refresh - it forces Safari to fully drop the previous source
+    // first instead of possibly reusing stale internal state.
+    el.removeAttribute("src");
     el.src = liveObjectUrl;
     if (afterSet) afterSet();
   }).catch(() => {
