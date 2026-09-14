@@ -275,6 +275,17 @@ export class DriveSorter {
     this.trashedCount = trashedCount;
   }
 
+  // Does a full rescan (same cost as refresh()) just to check whether any
+  // file exists on Drive that we don't already know about, without
+  // touching our own state - lets the UI ask "is there anything new?" and
+  // only actually pull it in (via refresh()) once the user agrees to it.
+  async peekNewFileIds() {
+    if (!this.rootId) return [];
+    const { files } = await this._scanWithTrash(this.rootId);
+    const currentIds = new Set(this.allFiles.map((f) => f.id));
+    return files.filter((f) => !currentIds.has(f.id)).map((f) => f.id);
+  }
+
   async loadFolder(folderId, folderName) {
     this.rootId = folderId;
     this.rootName = folderName || folderId;

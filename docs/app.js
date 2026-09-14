@@ -231,12 +231,10 @@ function setControlsDisabled(disabled) {
   else el("btn-undo").disabled = true;
 }
 
-function startReorgUi(newCount, oldCount) {
+function startReorgUi(message) {
   reorganizing = true;
   setControlsDisabled(true);
-  el("reorg-message").textContent = newCount > oldCount
-    ? "Quelqu'un rejoint le tri - repartition des fichiers..."
-    : "Quelqu'un a quitte le tri - repartition des fichiers...";
+  el("reorg-message").textContent = message;
   setHidden(el("reorg-overlay"), false);
 }
 
@@ -246,7 +244,13 @@ function endReorg() {
   setControlsDisabled(false);
 }
 
+// The active session list from the last presence resolution, kept around so
+// the "new files" refresh button (triggered on demand, not by a presence
+// change) can re-apply the same split without waiting for the next poll.
+let lastActiveSessions = [];
+
 presence.onChange = async (active) => {
+  lastActiveSessions = active;
   if (lastPeopleCount === null) {
     // Initial resolution for this folder - openFolder() is waiting on this
     // before it shows the app screen at all, so nobody sees a "before" state.
@@ -256,7 +260,9 @@ presence.onChange = async (active) => {
   }
   const oldCount = lastPeopleCount;
   lastPeopleCount = active.length;
-  startReorgUi(active.length, oldCount);
+  startReorgUi(active.length > oldCount
+    ? "Quelqu'un rejoint le tri - repartition des fichiers..."
+    : "Quelqu'un a quitte le tri - repartition des fichiers...");
   // Someone leaving (or joining) means whoever inherits/loses files needs
   // the REAL current state, not just what our own session already knew -
   // otherwise a file the departing person already kept or trashed could
@@ -269,7 +275,50 @@ presence.onChange = async (active) => {
   render(await sorter.current());
   endReorg();
 };
-window.addEventListener("beforeunload", () => presence.stop());
+
+// ---------- new files added mid-session ----------
+
+// Deliberately separate from (and much slower than) the presence heartbeat:
+// checking is a full folder rescan, which is fine once in a while but would
+// be wasteful (and risk repeating the earlier Drive rate-limit issue) done
+// every few seconds like presence is.
+const NEW_FILES_CHECK_MS = 45000;
+let newFilesTimer = null;
+let pendingNewFileIds = [];
+const dismissedNewFileIds = new Set();
+
+function startNewFilesWatch() {
+  stopNewFilesWatch();
+  pendingNewFileIds = [];
+  dismissedNewFileIds.clear();
+  newFilesTimer = setInterval(checkForNewFiles, NEW_FILES_CHECK_MS);
+}
+function stopNewFilesWatch() {
+  if (newFilesTimer) clearInterval(newFilesTimer);
+  newFilesTimer = null;
+  setHidden(el("newfiles-banner"), true);
+}
+
+async function checkForNewFiles() {
+  if (reorganizing || !current) return;
+  try {
+    const newIds = await sorter.peekNewFileIds();
+    pendingNewFileIds = newIds;
+    const undismissed = newIds.filter((id) => !dismissedNewFileIds.has(id));
+    if (undismissed.length === 0) {
+      setHidden(el("newfiles-banner"), true);
+      return;
+    }
+    el("newfiles-message").textContent = newIds.length === 1
+      ? "1 nouveau fichier a ete ajoute au dossier."
+      : `${newIds.length} nouveaux fichiers ont ete ajoutes au dossier.`;
+    setHidden(el("newfiles-banner"), false);
+  } catch {
+    // Offline or a transient Drive error - just skip this check, retried
+    // automatically on the next interval.
+  }
+}
+window.addEventListener("beforeunload", () => { presence.stop(); stopNewFilesWatch(); });
 
 function lastFolder() {
   try { return JSON.parse(localStorage.getItem("lastFolder") || "null"); } catch (e) { return null; }
@@ -538,6 +587,7 @@ async function openFolder(folderId, name) {
     await presence.start(folderId);
     showScreen("app");
     render(await sorter.current());
+    startNewFilesWatch();
   } catch (e) {
     setHidden(el("folder-error"), false);
     el("folder-error").textContent = "Impossible d'ouvrir ce dossier : " + e.message;
@@ -646,12 +696,27 @@ async function init() {
       toast("Impossible d'ouvrir le fichier.");
     }
   });
-  el("btn-choose-again").addEventListener("click", () => { presence.stop(); showScreen("folder"); loadFolderList(); });
-  el("btn-change-folder").addEventListener("click", () => { presence.stop(); showScreen("folder"); loadFolderList(); });
+  el("btn-choose-again").addEventListener("click", () => { presence.stop(); stopNewFilesWatch(); showScreen("folder"); loadFolderList(); });
+  el("btn-change-folder").addEventListener("click", () => { presence.stop(); stopNewFilesWatch(); showScreen("folder"); loadFolderList(); });
   el("btn-restart-folder").addEventListener("click", doRestartFolder);
   el("btn-open-folder").addEventListener("click", handleFolderSubmit);
   el("folder-input").addEventListener("keydown", (e) => { if (e.key === "Enter") handleFolderSubmit(); });
-  el("btn-signout").addEventListener("click", () => { presence.stop(); signOut(); showScreen("signin"); });
+  el("btn-signout").addEventListener("click", () => { presence.stop(); stopNewFilesWatch(); signOut(); showScreen("signin"); });
+  el("btn-newfiles-dismiss").addEventListener("click", () => {
+    pendingNewFileIds.forEach((id) => dismissedNewFileIds.add(id));
+    setHidden(el("newfiles-banner"), true);
+  });
+  el("btn-newfiles-refresh").addEventListener("click", async () => {
+    if (reorganizing) return;
+    setHidden(el("newfiles-banner"), true);
+    startReorgUi("Nouveaux fichiers - mise a jour...");
+    const minPause = new Promise((r) => setTimeout(r, 1200));
+    await Promise.all([sorter.refresh(), minPause]);
+    dismissedNewFileIds.clear();
+    sorter.setPresence(presence.sessionId, lastActiveSessions.length ? lastActiveSessions : [presence.sessionId]);
+    render(await sorter.current());
+    endReorg();
+  });
 
   setupDrag();
   setupKeys();

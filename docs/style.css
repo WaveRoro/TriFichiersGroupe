@@ -693,10 +693,73 @@ html, body {
   to { transform: rotate(360deg); }
 }
 
+.newfiles-banner {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 76px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 10px 10px 10px 16px;
+  border-radius: 12px;
+  box-shadow: 0 8px 28px var(--shadow-color);
+  max-width: min(420px, 90vw);
+}
+.newfiles-message {
+  font-size: 13px;
+  font-weight: 600;
+}
+.newfiles-refresh {
+  flex: 0 0 auto;
+  background: var(--accent-blue);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter .15s ease, transform .08s ease;
+}
+.newfiles-refresh:hover { filter: brightness(1.1); }
+.newfiles-refresh:active { transform: scale(0.96); }
+.newfiles-dismiss {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.newfiles-dismiss:hover { color: var(--text); }
+
 /* ---------- Mobile: media fills the screen, controls float over it ---------- */
 @media (max-width: 640px) {
   #app-screen {
     padding: 0;
+  }
+
+  /* Clears the mobile top bar even at its tallest (folder name + filter
+     pills + progress row all shown), rather than the desktop offset which
+     assumes a shorter bar. Wraps onto two lines (message, then buttons)
+     instead of squeezing everything into one narrow row - at mobile width
+     a single row forced the message into an ugly one-word-per-line column. */
+  .newfiles-banner {
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: min(320px, 88vw);
+    top: calc(env(safe-area-inset-top, 0px) + 132px);
+  }
+  .newfiles-message {
+    flex: 1 1 100%;
+    text-align: center;
   }
 
   /* Top overlay: folder name + "Ouvrir" share one fixed-height row, so
