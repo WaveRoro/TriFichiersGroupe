@@ -232,6 +232,36 @@ function fmtCounts(data) {
   renderFilterBar(data);
 }
 
+// Blob cache keyed by file id, used to preload the next file's image while
+// the current one is being viewed, and to hand render() an already-resolved
+// blob when the user swipes to it (feels instant instead of re-fetching).
+const blobCache = new Map();
+function getBlob(id) {
+  if (!blobCache.has(id)) {
+    blobCache.set(id, drive.mediaBlob(id).catch((e) => { blobCache.delete(id); throw e; }));
+  }
+  return blobCache.get(id);
+}
+
+// Object URL currently assigned to the visible media element. Revoked and
+// replaced each time a new file is shown, so we don't leak memory over a
+// long sorting session.
+let liveObjectUrl = null;
+function loadMediaSrc(el, id, errBox, afterSet) {
+  getBlob(id).then((blob) => {
+    if (!current || current.id !== id) return;
+    blobCache.delete(id);
+    if (liveObjectUrl) URL.revokeObjectURL(liveObjectUrl);
+    liveObjectUrl = URL.createObjectURL(blob);
+    el.src = liveObjectUrl;
+    if (afterSet) afterSet();
+  }).catch(() => {
+    if (!current || current.id !== id) return;
+    setHidden(el, true);
+    setHidden(errBox, false);
+  });
+}
+
 function stopVideo() {
   const vid = el("video-preview");
   try { vid.pause(); vid.removeAttribute("src"); vid.load(); } catch (e) {}
@@ -285,11 +315,12 @@ async function render(data) {
   videoControls.classList.remove("controls-faded");
   stopVideo();
   pdfFrame.src = "about:blank";
+  if (liveObjectUrl) { URL.revokeObjectURL(liveObjectUrl); liveObjectUrl = null; }
 
   if (data.kind === "image") {
     img.onerror = () => { setHidden(img, true); setHidden(errBox, false); };
     img.onload = () => setHidden(img, false);
-    img.src = data.url;
+    loadMediaSrc(img, data.id, errBox);
   } else if (data.kind === "video" || data.kind === "audio") {
     applyAudioPrefs();
     setHidden(audioIconOverlay, data.kind !== "audio");
@@ -302,12 +333,11 @@ async function render(data) {
       vid.play().catch(() => {});
       showVideoControls();
     };
-    vid.src = data.url;
-    vid.load();
+    loadMediaSrc(vid, data.id, errBox, () => vid.load());
   } else if (data.kind === "pdf") {
     setHidden(pdfFrame, false);
     pdfFrame.onerror = () => { setHidden(pdfFrame, true); setHidden(errBox, false); };
-    pdfFrame.src = data.url;
+    loadMediaSrc(pdfFrame, data.id, errBox);
   } else if (data.kind === "text") {
     setHidden(textPreview, false);
     el("text-content").textContent = "Chargement...";
@@ -331,8 +361,7 @@ function preload() {
   sorter.peekNext().then((next) => {
     if (!next || next.done) return;
     if (next.kind === "image") {
-      const im = new Image();
-      im.src = next.url;
+      getBlob(next.id).catch(() => {});
     }
   }).catch(() => {});
 }
@@ -514,8 +543,18 @@ async function init() {
   el("btn-reject").addEventListener("click", () => decide("reject"));
   el("btn-skip").addEventListener("click", doSkip);
   el("btn-undo").addEventListener("click", doUndo);
-  el("btn-open-external").addEventListener("click", () => {
-    if (current && current.url) window.open(current.url, "_blank", "noopener");
+  el("btn-open-external").addEventListener("click", async () => {
+    if (!current) return;
+    try {
+      let url = liveObjectUrl;
+      if (!url) {
+        const blob = await getBlob(current.id);
+        url = URL.createObjectURL(blob);
+      }
+      window.open(url, "_blank", "noopener");
+    } catch (e) {
+      toast("Impossible d'ouvrir le fichier.");
+    }
   });
   el("btn-choose-again").addEventListener("click", () => { showScreen("folder"); loadFolderList(); });
   el("btn-change-folder").addEventListener("click", () => { showScreen("folder"); loadFolderList(); });

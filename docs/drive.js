@@ -152,9 +152,15 @@ export class DriveApi {
     return res.json();
   }
 
-  async mediaUrl(fileId) {
-    const token = await this.getToken();
-    return `${API_BASE}/files/${fileId}?alt=media&access_token=${encodeURIComponent(token)}`;
+  // Fetches the raw file bytes with the token in the Authorization header
+  // (same pattern as readTextFile), rather than as a "?access_token=" URL
+  // query parameter. The URL-parameter approach - what this used to do, to
+  // get a directly embeddable <img>/<video> src - reliably got the request
+  // blocked with Google's "unusual traffic" page on every single file, from
+  // the very first one. Caller turns the returned Blob into an object URL.
+  async mediaBlob(fileId) {
+    const res = await this._fetch(`${API_BASE}/files/${fileId}?alt=media`);
+    return res.blob();
   }
 }
 

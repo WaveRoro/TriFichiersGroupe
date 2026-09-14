@@ -227,8 +227,7 @@ export class DriveSorter {
     };
   }
 
-  async _fileInfo(f) {
-    const url = await this.drive.mediaUrl(f.id);
+  _fileInfo(f) {
     return {
       done: false,
       id: f.id,
@@ -238,7 +237,6 @@ export class DriveSorter {
       kind: f.kind,
       size: f.size,
       sizeH: humanSize(f.size),
-      url,
       ...this._status(),
     };
   }
