@@ -554,10 +554,14 @@ html, body {
   padding: 10px 14px;
   font-size: 12px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   transition: border-color .15s ease, transform .08s ease;
 }
 .btn-icon:hover { border-color: var(--accent-blue); }
 .btn-icon:active { transform: scale(0.95); }
+.btn-icon-svg { flex: 0 0 auto; }
 
 .controls {
   flex: 0 0 auto;
@@ -635,16 +639,22 @@ html, body {
     padding: 0;
   }
 
+  /* Top overlay: folder name + "Ouvrir" share one fixed-height row, so
+     Ouvrir's position never depends on how tall the rest of the bar gets
+     (filter pills, progress bar) - that mismatch used to make it drift down
+     into the progress bar on real content. */
   .topbar {
     position: fixed;
     top: 0; left: 0; right: 0;
     z-index: 20;
-    padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px 10px;
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.6), transparent);
+    padding: calc(env(safe-area-inset-top, 0px) + 10px) 58px 14px 16px;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.28) 60%, transparent 100%);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
   }
-  .folder-path, .btn-link { color: rgba(255, 255, 255, 0.9); }
+  .folder-path, .btn-link { color: rgba(255, 255, 255, 0.92); }
   .stats, .stat-speed { display: none; }
-  .progress-bar { background: rgba(255, 255, 255, 0.25); }
+  .progress-bar { background: rgba(255, 255, 255, 0.25); margin-top: 12px; }
 
   .stage {
     position: fixed;
@@ -666,37 +676,66 @@ html, body {
     position: absolute;
     left: 0; right: 0; bottom: 0;
     z-index: 5;
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.65), transparent);
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.35) 55%, transparent 100%);
     border-top: none;
-    padding: 50px 18px 110px;
+    padding: 60px 20px 116px;
     pointer-events: none;
   }
-  .file-name { color: white; }
-  .file-meta { color: rgba(255, 255, 255, 0.8); }
+  .file-name { color: white; font-size: 15px; }
+  .file-meta { color: rgba(255, 255, 255, 0.75); }
 
+  /* Aligned to the same top offset as .topbar's own padding, so it always
+     sits on the folder-name row itself instead of trailing below it. */
   .side-actions {
     position: fixed;
-    top: calc(env(safe-area-inset-top, 0px) + 56px);
+    top: calc(env(safe-area-inset-top, 0px) + 8px);
     right: 14px;
-    z-index: 20;
+    z-index: 25;
   }
   .btn-icon {
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(255, 255, 255, 0.14);
     border-color: rgba(255, 255, 255, 0.3);
     color: white;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border-radius: 50%;
+    justify-content: center;
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
   }
+  .btn-icon-label { display: none; }
+
+  /* Video-specific overlays: pushed clear of the top icon row and the
+     bottom controls bar now that media-wrap spans the full screen height. */
+  .video-progress-ring {
+    top: calc(env(safe-area-inset-top, 0px) + 62px);
+  }
+  .video-controls {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 170px);
+  }
+  /* Volume is handled by the phone's hardware buttons on mobile - the
+     on-screen slider is redundant, keep just the mute toggle. */
+  .volume-slider { display: none; }
+  .video-controls { padding: 8px; }
 
   .controls {
     position: fixed;
     left: 0; right: 0; bottom: 0;
     z-index: 20;
-    padding: 16px 24px calc(env(safe-area-inset-bottom, 0px) + 16px);
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.6), transparent);
+    padding: 18px 22px calc(env(safe-area-inset-bottom, 0px) + 18px);
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.28) 65%, transparent 100%);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    gap: 18px;
   }
   .pillBtn {
-    background: rgba(255, 255, 255, 0.15);
-    border-color: rgba(255, 255, 255, 0.3);
-    color: rgba(255, 255, 255, 0.9);
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.28);
+    color: rgba(255, 255, 255, 0.92);
+  }
+  .btn-round {
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
   }
 
   .keys-hint { display: none; }
