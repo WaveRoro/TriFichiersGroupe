@@ -3,7 +3,7 @@ import { DriveApi, extractFolderId } from "./drive.js";
 import { DriveSorter } from "./sorter.js";
 
 // Fill in with the Client ID from Google Cloud Console (Credentials > OAuth client ID).
-const CLIENT_ID = "REPLACE_WITH_YOUR_CLIENT_ID.apps.googleusercontent.com";
+const CLIENT_ID = "917711651027-r9gt2l06bn0mdcd5n7kctbjd2m0lhihk.apps.googleusercontent.com";
 
 let current = null;
 let busy = false;
