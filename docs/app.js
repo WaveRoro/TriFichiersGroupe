@@ -283,9 +283,12 @@ presence.onChange = async (active) => {
 // be wasteful (and risk repeating the earlier Drive rate-limit issue) done
 // every few seconds like presence is.
 const NEW_FILES_CHECK_MS = 45000;
+const NEW_FILES_COUNTDOWN_S = 10;
 let newFilesTimer = null;
 let pendingNewFileIds = [];
 const dismissedNewFileIds = new Set();
+let countdownTimer = null;
+let countdownRemaining = 0;
 
 function startNewFilesWatch() {
   stopNewFilesWatch();
@@ -296,7 +299,35 @@ function startNewFilesWatch() {
 function stopNewFilesWatch() {
   if (newFilesTimer) clearInterval(newFilesTimer);
   newFilesTimer = null;
+  clearCountdown();
   setHidden(el("newfiles-banner"), true);
+}
+
+function clearCountdown() {
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = null;
+}
+
+function newFilesLabel(count) {
+  return count === 1 ? "1 nouveau fichier a ete ajoute" : `${count} nouveaux fichiers ont ete ajoutes`;
+}
+
+function startNewFilesCountdown(count) {
+  clearCountdown();
+  countdownRemaining = NEW_FILES_COUNTDOWN_S;
+  const tick = () => {
+    el("newfiles-message").textContent = `${newFilesLabel(count)} - actualisation dans ${countdownRemaining}s...`;
+  };
+  tick();
+  countdownTimer = setInterval(() => {
+    countdownRemaining -= 1;
+    if (countdownRemaining <= 0) {
+      clearCountdown();
+      applyNewFiles();
+    } else {
+      tick();
+    }
+  }, 1000);
 }
 
 async function checkForNewFiles() {
@@ -306,17 +337,29 @@ async function checkForNewFiles() {
     pendingNewFileIds = newIds;
     const undismissed = newIds.filter((id) => !dismissedNewFileIds.has(id));
     if (undismissed.length === 0) {
+      clearCountdown();
       setHidden(el("newfiles-banner"), true);
       return;
     }
-    el("newfiles-message").textContent = newIds.length === 1
-      ? "1 nouveau fichier a ete ajoute au dossier."
-      : `${newIds.length} nouveaux fichiers ont ete ajoutes au dossier.`;
     setHidden(el("newfiles-banner"), false);
+    startNewFilesCountdown(newIds.length);
   } catch {
     // Offline or a transient Drive error - just skip this check, retried
     // automatically on the next interval.
   }
+}
+
+async function applyNewFiles() {
+  if (reorganizing) return;
+  clearCountdown();
+  setHidden(el("newfiles-banner"), true);
+  startReorgUi("Nouveaux fichiers - mise a jour...");
+  const minPause = new Promise((r) => setTimeout(r, 1200));
+  await Promise.all([sorter.refresh(), minPause]);
+  dismissedNewFileIds.clear();
+  sorter.setPresence(presence.sessionId, lastActiveSessions.length ? lastActiveSessions : [presence.sessionId]);
+  render(await sorter.current());
+  endReorg();
 }
 window.addEventListener("beforeunload", () => { presence.stop(); stopNewFilesWatch(); });
 
@@ -703,20 +746,11 @@ async function init() {
   el("folder-input").addEventListener("keydown", (e) => { if (e.key === "Enter") handleFolderSubmit(); });
   el("btn-signout").addEventListener("click", () => { presence.stop(); stopNewFilesWatch(); signOut(); showScreen("signin"); });
   el("btn-newfiles-dismiss").addEventListener("click", () => {
+    clearCountdown();
     pendingNewFileIds.forEach((id) => dismissedNewFileIds.add(id));
     setHidden(el("newfiles-banner"), true);
   });
-  el("btn-newfiles-refresh").addEventListener("click", async () => {
-    if (reorganizing) return;
-    setHidden(el("newfiles-banner"), true);
-    startReorgUi("Nouveaux fichiers - mise a jour...");
-    const minPause = new Promise((r) => setTimeout(r, 1200));
-    await Promise.all([sorter.refresh(), minPause]);
-    dismissedNewFileIds.clear();
-    sorter.setPresence(presence.sessionId, lastActiveSessions.length ? lastActiveSessions : [presence.sessionId]);
-    render(await sorter.current());
-    endReorg();
-  });
+  el("btn-newfiles-refresh").addEventListener("click", () => applyNewFiles());
 
   setupDrag();
   setupKeys();
