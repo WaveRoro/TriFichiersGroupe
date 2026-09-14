@@ -66,58 +66,49 @@ export class DriveSorter {
     this.trashFolderCache = new Map(); // parentId -> trash folder id
   }
 
-  async _scan(rootId) {
+  // Walks the whole folder tree once, collecting real files and counting
+  // trashed ones in the same pass (instead of two separate full walks), and
+  // queries sibling subfolders in parallel instead of one at a time - both
+  // used to make loading a folder noticeably slower than it needs to be.
+  async _scanWithTrash(rootId) {
     const files = [];
+    const countRecursive = async (folderId) => {
+      const children = await this.drive.listChildren(folderId);
+      const counts = await Promise.all(children.map((c) =>
+        c.mimeType === FOLDER_MIME ? countRecursive(c.id) : Promise.resolve(1)
+      ));
+      return counts.reduce((a, b) => a + b, 0);
+    };
+    // Returns the trash count found within this subtree. Each branch adds
+    // its own file(s) to the shared `files` array (safe: push is never split
+    // across an await) and returns its own count, summed once via reduce
+    // after Promise.all - summing through a shared `total += await ...`
+    // instead would lose updates, since each branch reads the old total
+    // before its own await resolves.
     const walk = async (folderId, relPrefix) => {
       const children = await this.drive.listChildren(folderId);
-      for (const child of children) {
+      const trashCounts = await Promise.all(children.map(async (child) => {
         if (child.mimeType === FOLDER_MIME) {
-          if (child.name === TRASH_DIRNAME) continue;
-          await walk(child.id, relPrefix + child.name + "/");
-        } else {
-          if (child.name === STATE_FILENAME) continue;
-          files.push({
-            id: child.id,
-            name: child.name,
-            mimeType: child.mimeType,
-            size: Number(child.size || 0),
-            parentId: folderId,
-            rel: relPrefix + child.name,
-            kind: classify(child.name),
-          });
+          if (child.name === TRASH_DIRNAME) return countRecursive(child.id);
+          return walk(child.id, relPrefix + child.name + "/");
         }
-      }
+        if (child.name === STATE_FILENAME) return 0;
+        files.push({
+          id: child.id,
+          name: child.name,
+          mimeType: child.mimeType,
+          size: Number(child.size || 0),
+          parentId: folderId,
+          rel: relPrefix + child.name,
+          kind: classify(child.name),
+        });
+        return 0;
+      }));
+      return trashCounts.reduce((a, b) => a + b, 0);
     };
-    await walk(rootId, "");
+    const trashedCount = await walk(rootId, "");
     files.sort((a, b) => a.rel.toLowerCase().localeCompare(b.rel.toLowerCase()));
-    return files;
-  }
-
-  async _countTrash(rootId) {
-    let count = 0;
-    const walk = async (folderId) => {
-      const children = await this.drive.listChildren(folderId);
-      for (const child of children) {
-        if (child.mimeType !== FOLDER_MIME) continue;
-        if (child.name === TRASH_DIRNAME) {
-          count += await this._countRecursive(child.id);
-        } else {
-          await walk(child.id);
-        }
-      }
-    };
-    await walk(rootId);
-    return count;
-  }
-
-  async _countRecursive(folderId) {
-    let count = 0;
-    const children = await this.drive.listChildren(folderId);
-    for (const child of children) {
-      if (child.mimeType === FOLDER_MIME) count += await this._countRecursive(child.id);
-      else count += 1;
-    }
-    return count;
+    return { files, trashedCount };
   }
 
   async _loadState(rootId) {
@@ -165,10 +156,11 @@ export class DriveSorter {
     this.rootId = folderId;
     this.rootName = folderName || folderId;
     this.kept = await this._loadState(folderId);
-    this.allFiles = await this._scan(folderId);
+    const { files, trashedCount } = await this._scanWithTrash(folderId);
+    this.allFiles = files;
+    this.trashedCount = trashedCount;
     this.activeFilters = new Set();
     this.history = [];
-    this.trashedCount = await this._countTrash(folderId);
     this._applyFilter();
     return this.current();
   }
@@ -191,9 +183,10 @@ export class DriveSorter {
         // ignore
       }
     }
-    this.allFiles = await this._scan(this.rootId);
+    const { files, trashedCount } = await this._scanWithTrash(this.rootId);
+    this.allFiles = files;
+    this.trashedCount = trashedCount;
     this.history = [];
-    this.trashedCount = await this._countTrash(this.rootId);
     this._applyFilter();
     return this.current();
   }
