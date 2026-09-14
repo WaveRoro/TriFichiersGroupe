@@ -44,6 +44,29 @@ async function mapWithConcurrency(items, limit, fn) {
   return results;
 }
 
+// Ensures exactly one child with this name exists under parentId, returning
+// its id. Two SEPARATE browser sessions (different devices/tabs, not just
+// concurrent calls within our own code) can both check "does it exist?",
+// both get "no", and both create one - Drive allows duplicate filenames in
+// one folder, so this isn't hypothetical. When that happens, every session
+// must converge on using the exact same file or they'll each silently work
+// off their own isolated copy forever (which is exactly what broke presence
+// across two real devices during testing). Re-listing after creating and
+// deterministically picking the same winner (lowest id) - regardless of
+// which session is asking - makes that converge instead.
+export async function ensureNamedChild(drive, parentId, name, createFn) {
+  let children = await drive.listChildren(parentId);
+  let candidates = children.filter((c) => c.name === name);
+  if (candidates.length === 0) {
+    const created = await createFn();
+    children = await drive.listChildren(parentId);
+    candidates = children.filter((c) => c.name === name);
+    if (candidates.length === 0) return created.id; // listing lagged behind our own write - fall back to it
+  }
+  candidates.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return candidates[0].id;
+}
+
 function extOf(name) {
   const i = name.lastIndexOf(".");
   return i >= 0 ? name.slice(i).toLowerCase() : "";
@@ -171,14 +194,20 @@ export class DriveSorter {
 
   async _loadState(rootId) {
     const children = await this.drive.listChildren(rootId);
-    const stateFile = children.find((c) => c.name === STATE_FILENAME);
-    if (!stateFile) {
+    // Same convergence rule as ensureNamedChild (lowest id wins) applied to
+    // reading, so if duplicates ever exist every session still agrees on
+    // the same one instead of `.find()` picking whichever Drive happened to
+    // list first.
+    const candidates = children
+      .filter((c) => c.name === STATE_FILENAME)
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    if (candidates.length === 0) {
       this.stateFileId = null;
       return new Set();
     }
-    this.stateFileId = stateFile.id;
+    this.stateFileId = candidates[0].id;
     try {
-      const text = await this.drive.readTextFile(stateFile.id);
+      const text = await this.drive.readTextFile(this.stateFileId);
       const data = JSON.parse(text);
       return new Set(Array.isArray(data.kept) ? data.kept : []);
     } catch {
@@ -188,12 +217,13 @@ export class DriveSorter {
 
   async _saveState() {
     const payload = JSON.stringify({ kept: Array.from(this.kept).sort() });
-    if (this.stateFileId) {
-      await this.drive.writeTextFile(this.stateFileId, payload);
-    } else {
-      const created = await this.drive.createTextFile(STATE_FILENAME, this.rootId, payload);
-      this.stateFileId = created.id;
+    if (!this.stateFileId) {
+      this.stateFileId = await ensureNamedChild(
+        this.drive, this.rootId, STATE_FILENAME,
+        () => this.drive.createTextFile(STATE_FILENAME, this.rootId, payload)
+      );
     }
+    await this.drive.writeTextFile(this.stateFileId, payload);
   }
 
   _availableKinds() {
@@ -355,12 +385,10 @@ export class DriveSorter {
   // folders.
   _getOrCreateTrashFolder(parentId) {
     if (!this.trashFolderCache.has(parentId)) {
-      this.trashFolderCache.set(parentId, (async () => {
-        const children = await this.drive.listChildren(parentId);
-        let trash = children.find((c) => c.mimeType === FOLDER_MIME && c.name === TRASH_DIRNAME);
-        if (!trash) trash = await this.drive.createFolder(TRASH_DIRNAME, parentId);
-        return trash.id;
-      })());
+      this.trashFolderCache.set(parentId, ensureNamedChild(
+        this.drive, parentId, TRASH_DIRNAME,
+        () => this.drive.createFolder(TRASH_DIRNAME, parentId)
+      ));
     }
     return this.trashFolderCache.get(parentId);
   }

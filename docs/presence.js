@@ -1,4 +1,4 @@
-import { PRESENCE_FILENAME } from "./sorter.js";
+import { PRESENCE_FILENAME, ensureNamedChild } from "./sorter.js";
 
 const HEARTBEAT_MS = 10000;
 // A session is considered gone after missing ~3 heartbeats. There is no way
@@ -53,18 +53,10 @@ export class Presence {
   }
 
   async _ensureFile() {
-    const children = await this.drive.listChildren(this.rootId);
-    const existing = children.find((c) => c.name === PRESENCE_FILENAME);
-    if (existing) {
-      this.fileId = existing.id;
-      return;
-    }
-    const created = await this.drive.createTextFile(
-      PRESENCE_FILENAME,
-      this.rootId,
-      JSON.stringify({ sessions: {} })
+    this.fileId = await ensureNamedChild(
+      this.drive, this.rootId, PRESENCE_FILENAME,
+      () => this.drive.createTextFile(PRESENCE_FILENAME, this.rootId, JSON.stringify({ sessions: {} }))
     );
-    this.fileId = created.id;
   }
 
   async _read() {
