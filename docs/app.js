@@ -1,4 +1,4 @@
-import { initAuth, signIn, getToken, signOut } from "./auth.js";
+import { initAuth, signIn, trySilentSignIn, getToken, signOut } from "./auth.js";
 import { DriveApi, extractFolderId } from "./drive.js";
 import { DriveSorter } from "./sorter.js";
 
@@ -216,6 +216,13 @@ function lastFolder() {
 }
 function setLastFolder(id, name) {
   try { localStorage.setItem("lastFolder", JSON.stringify({ id, name })); } catch (e) {}
+}
+
+function wasSignedIn() {
+  try { return localStorage.getItem("wasSignedIn") === "1"; } catch (e) { return false; }
+}
+function setWasSignedIn(v) {
+  try { localStorage.setItem("wasSignedIn", v ? "1" : "0"); } catch (e) {}
 }
 
 // ---------- rendering ----------
@@ -522,7 +529,7 @@ async function init() {
   el("btn-restart-folder").addEventListener("click", doRestartFolder);
   el("btn-open-folder").addEventListener("click", handleFolderSubmit);
   el("folder-input").addEventListener("keydown", (e) => { if (e.key === "Enter") handleFolderSubmit(); });
-  el("btn-signout").addEventListener("click", () => { signOut(); showScreen("signin"); });
+  el("btn-signout").addEventListener("click", () => { signOut(); setWasSignedIn(false); showScreen("signin"); });
 
   setupDrag();
   setupKeys();
@@ -533,18 +540,34 @@ async function init() {
   } catch (e) {
     el("signin-error").textContent = "Erreur de chargement Google : " + e.message;
     setHidden(el("signin-error"), false);
+    showScreen("signin");
+    return;
   }
 
   el("btn-signin").addEventListener("click", async () => {
     setHidden(el("signin-error"), true);
     try {
       await signIn();
+      setWasSignedIn(true);
       afterSignIn();
     } catch (e) {
       el("signin-error").textContent = "Connexion refusee ou impossible.";
       setHidden(el("signin-error"), false);
     }
   });
+
+  if (wasSignedIn()) {
+    el("loading-text").textContent = "Reconnexion...";
+    showScreen("loading");
+    try {
+      await trySilentSignIn();
+      setWasSignedIn(true);
+      afterSignIn();
+      return;
+    } catch (e) {
+      setWasSignedIn(false);
+    }
+  }
 
   showScreen("signin");
 }

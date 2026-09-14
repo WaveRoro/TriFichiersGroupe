@@ -46,6 +46,17 @@ export function signIn() {
   });
 }
 
+// Tries to get a token without showing any Google UI, reusing the browser's
+// existing Google session and prior consent. Used to skip the sign-in screen
+// on page reload for someone who already signed in before. Rejects (instead
+// of prompting) if that's not possible - caller should fall back to signIn().
+export function trySilentSignIn() {
+  return new Promise((resolve, reject) => {
+    pendingResolvers.push({ resolve, reject });
+    tokenClient.requestAccessToken({ prompt: "" });
+  });
+}
+
 export function getToken() {
   return new Promise((resolve, reject) => {
     if (currentToken && Date.now() < tokenExpiry - 30000) {
