@@ -20,6 +20,37 @@ function setHidden(elOrId, hide) {
   else node.removeAttribute("hidden");
 }
 
+// ---------- mobile immersive mode ----------
+// On phones, the surrounding text/buttons can cover part of the photo or
+// video. By default (mobile only - this is a no-op on desktop, which has
+// room to show everything at once) most of it is hidden, leaving just the
+// progress bar (which moves up to take the vacated space). Tapping the card
+// reveals everything for a few seconds; dragging to swipe deliberately does
+// not, so it never fights with the accept/reject gesture.
+const CHROME_IDS = ["topbar-detail", "side-actions", "card-footer", "controls-bar"];
+const CHROME_REVEAL_MS = 3000;
+let chromeHideTimer = null;
+
+function isMobileLayout() {
+  return window.matchMedia("(max-width: 640px)").matches;
+}
+
+function setChromeVisible(visible) {
+  const hide = isMobileLayout() ? !visible : false;
+  for (const id of CHROME_IDS) setHidden(id, hide);
+}
+
+function revealChromeTemporarily() {
+  setChromeVisible(true);
+  clearTimeout(chromeHideTimer);
+  chromeHideTimer = setTimeout(() => setChromeVisible(false), CHROME_REVEAL_MS);
+}
+
+// If the layout ever crosses from mobile to desktop width mid-session
+// (a resized window, a rotated tablet), make sure nothing stays stuck
+// hidden - desktop always shows everything regardless of chrome state.
+window.addEventListener("resize", () => { if (!isMobileLayout()) setChromeVisible(true); });
+
 const screens = {
   signin: el("signin-screen"),
   folder: el("folder-screen"),
@@ -604,6 +635,7 @@ async function doRestartFolder() {
   const data = await sorter.resetProgress();
   resetSpeedStats();
   showScreen("app");
+  setChromeVisible(false);
   render(data);
 }
 
@@ -629,6 +661,7 @@ async function openFolder(folderId, name) {
     el("loading-text").textContent = "Verification des autres participants...";
     await presence.start(folderId);
     showScreen("app");
+    setChromeVisible(false);
     render(await sorter.current());
     startNewFilesWatch();
   } catch (e) {
@@ -684,6 +717,8 @@ function setupDrag() {
       card.style.transform = "";
       el("badge-like").style.opacity = 0;
       el("badge-nope").style.opacity = 0;
+      // Barely moved -> a tap, not a swipe attempt. Reveal the mobile chrome.
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) revealChromeTemporarily();
     }
   }
   card.addEventListener("pointerup", endDrag);

@@ -52,18 +52,20 @@
 
 <div id="app-screen" class="screen" hidden>
   <header class="topbar">
-    <div class="folder-line">
-      <span id="folder-path" class="folder-path"></span>
-      <button id="btn-change-folder" class="btn-link">changer</button>
+    <div id="topbar-detail">
+      <div class="folder-line">
+        <span id="folder-path" class="folder-path"></span>
+        <button id="btn-change-folder" class="btn-link">changer</button>
+      </div>
+      <div class="stats">
+        <span id="stat-remaining">0</span> restants
+        &middot; <span id="stat-kept">0</span> gardes
+        &middot; <span id="stat-trashed">0</span> a la poubelle
+      </div>
+      <div id="stat-speed" class="stat-speed" hidden></div>
+      <div id="stat-people" class="stat-people" hidden></div>
+      <div id="filter-bar" class="filter-bar" hidden></div>
     </div>
-    <div class="stats">
-      <span id="stat-remaining">0</span> restants
-      &middot; <span id="stat-kept">0</span> gardes
-      &middot; <span id="stat-trashed">0</span> a la poubelle
-    </div>
-    <div id="stat-speed" class="stat-speed" hidden></div>
-    <div id="stat-people" class="stat-people" hidden></div>
-    <div id="filter-bar" class="filter-bar" hidden></div>
     <div class="progress-row">
       <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
       <span id="progress-percent" class="progress-percent">0%</span>
@@ -109,14 +111,14 @@
           </div>
         </div>
 
-        <div class="card-footer">
+        <div id="card-footer" class="card-footer">
           <div id="file-name" class="file-name"></div>
           <div id="file-meta" class="file-meta"></div>
         </div>
       </div>
     </div>
 
-    <div class="side-actions">
+    <div id="side-actions" class="side-actions">
       <button id="btn-open-external" class="btn-icon" title="Ouvrir dans un nouvel onglet">
         <svg class="btn-icon-svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
@@ -128,7 +130,7 @@
     </div>
   </main>
 
-  <footer class="controls">
+  <footer id="controls-bar" class="controls">
     <button id="btn-undo" class="pillBtn" title="Annuler">
       <span class="pillBtnIcon">&#8630;</span><span class="pillBtnLabel">Annuler</span>
     </button>
