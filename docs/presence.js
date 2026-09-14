@@ -1,12 +1,15 @@
 import { PRESENCE_FILENAME, ensureNamedChild } from "./sorter.js";
 
-const HEARTBEAT_MS = 10000;
-// A session is considered gone after missing ~3 heartbeats. There is no way
-// to reliably detect a closed tab with only Drive as a backend (no
-// server-sent events, and sendBeacon can't carry the Authorization header
-// Drive's API needs) - so "someone left" is only ever detected this way,
-// with this delay, rather than instantly.
-const STALE_MS = 30000;
+const HEARTBEAT_MS = 5000;
+// A session is considered gone after missing ~3 heartbeats (kept at 3, not
+// 1, so a single slow/dropped request doesn't wrongly evict someone still
+// there). There is no way to reliably detect a closed tab - or a
+// backgrounded mobile browser, whose timers get suspended by the OS the
+// same way - with only Drive as a backend (no server-sent events, and
+// sendBeacon can't carry the Authorization header Drive's API needs) - so
+// "someone left" is only ever detected this way, worst case STALE_MS +
+// HEARTBEAT_MS after they actually stopped (~20s at these values).
+const STALE_MS = 15000;
 
 function randomId() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
