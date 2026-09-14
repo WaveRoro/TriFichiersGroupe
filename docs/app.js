@@ -231,16 +231,13 @@ function setControlsDisabled(disabled) {
   else el("btn-undo").disabled = true;
 }
 
-async function pauseForReorg(newCount, oldCount) {
+function startReorgUi(newCount, oldCount) {
   reorganizing = true;
   setControlsDisabled(true);
   el("reorg-message").textContent = newCount > oldCount
     ? "Quelqu'un rejoint le tri - repartition des fichiers..."
     : "Quelqu'un a quitte le tri - repartition des fichiers...";
   setHidden(el("reorg-overlay"), false);
-  // Purely a UX pace-setter (the recompute itself is instant) - long enough
-  // to read as a deliberate step rather than a flicker.
-  await new Promise((r) => setTimeout(r, 1600));
 }
 
 function endReorg() {
@@ -259,7 +256,15 @@ presence.onChange = async (active) => {
   }
   const oldCount = lastPeopleCount;
   lastPeopleCount = active.length;
-  await pauseForReorg(active.length, oldCount);
+  startReorgUi(active.length, oldCount);
+  // Someone leaving (or joining) means whoever inherits/loses files needs
+  // the REAL current state, not just what our own session already knew -
+  // otherwise a file the departing person already kept or trashed could
+  // resurface for whoever takes over their share. Runs alongside a minimum
+  // pacing delay (not after it) so the pause isn't longer than it needs to
+  // be on small folders, but still scales up for a slow refresh on big ones.
+  const minPause = new Promise((r) => setTimeout(r, 1600));
+  await Promise.all([sorter.refresh(), minPause]);
   sorter.setPresence(presence.sessionId, active);
   render(await sorter.current());
   endReorg();

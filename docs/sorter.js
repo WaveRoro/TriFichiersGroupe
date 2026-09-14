@@ -253,11 +253,14 @@ export class DriveSorter {
     this.index = 0;
   }
 
-  // Called by the UI whenever the set of people currently sorting this
-  // folder changes. Re-splits the pending files immediately: shrinks my
-  // queue if someone new just joined, grows it back if someone left. Files
-  // already decided (kept or moved to trash) are unaffected either way -
-  // only what's still pending gets reshuffled.
+  // Re-splits the pending files against whatever is CURRENTLY in this.kept
+  // / this.allFiles - it does not itself go check Drive for what other
+  // sessions may have done since our own last scan. Fine for the very first
+  // split right after loadFolder() (which just scanned), but a real
+  // reassignment (someone joining/leaving while sorting is already under
+  // way) should call refresh() first - see app.js's presence.onChange -
+  // otherwise a file someone else already kept or trashed could resurface
+  // for whoever inherits their share.
   setPresence(mySessionId, activeSessionIds) {
     this.mySessionId = mySessionId;
     this.activeSessions = [...activeSessionIds].sort();
@@ -265,6 +268,18 @@ export class DriveSorter {
       this.history = [];
       this._applyFilter();
     }
+  }
+
+  // Re-reads the shared kept-list and re-scans the folder for what's been
+  // moved to trash, so a reassignment (see setPresence above) reflects
+  // whatever other sessions have actually decided since our last look,
+  // instead of only knowing about our own decisions.
+  async refresh() {
+    if (!this.rootId) return;
+    this.kept = await this._loadState(this.rootId);
+    const { files, trashedCount } = await this._scanWithTrash(this.rootId);
+    this.allFiles = files;
+    this.trashedCount = trashedCount;
   }
 
   async loadFolder(folderId, folderName) {
