@@ -524,6 +524,7 @@ button, input { font: inherit; color: inherit; }
 .media {
   position: relative;
   z-index: 1;
+  --feather: 36px;
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -538,8 +539,30 @@ button, input { font: inherit; color: inherit; }
   width: 100%;
   height: 100%;
   object-fit: cover;
-  opacity: 0.7;
+  opacity: 0.8;
   pointer-events: none;
+}
+
+/* Where the photo stops and the ambient fill starts there is no line: the
+   photo's edge fades out over a few dozen pixels into the fill. fitMedia()
+   sizes the element to the picture itself so the fade lands on its edge. */
+.media.fade-x {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--feather), #000 calc(100% - var(--feather)), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 var(--feather), #000 calc(100% - var(--feather)), transparent 100%);
+}
+.media.fade-y {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--feather), #000 calc(100% - var(--feather)), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--feather), #000 calc(100% - var(--feather)), transparent 100%);
+}
+.media.fade-x.fade-y {
+  -webkit-mask-image:
+    linear-gradient(to right, transparent 0, #000 var(--feather), #000 calc(100% - var(--feather)), transparent 100%),
+    linear-gradient(to bottom, transparent 0, #000 var(--feather), #000 calc(100% - var(--feather)), transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to right, transparent 0, #000 var(--feather), #000 calc(100% - var(--feather)), transparent 100%),
+    linear-gradient(to bottom, transparent 0, #000 var(--feather), #000 calc(100% - var(--feather)), transparent 100%);
+  mask-composite: intersect;
 }
 
 /* Only shown if a file is still loading after a moment, so quick loads

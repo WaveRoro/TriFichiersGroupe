@@ -444,17 +444,61 @@ function paintAmbient(canvas, source) {
     const sctx = step.getContext("2d");
     sctx.imageSmoothingQuality = "high";
     sctx.drawImage(source, 0, 0, step.width, step.height);
+    let small = document.createElement("canvas");
     const scale = 16 / Math.max(w, h);
-    canvas.width = Math.max(2, Math.round(w * scale));
-    canvas.height = Math.max(2, Math.round(h * scale));
-    const ctx = canvas.getContext("2d");
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(step, 0, 0, canvas.width, canvas.height);
+    small.width = Math.max(2, Math.round(w * scale));
+    small.height = Math.max(2, Math.round(h * scale));
+    small.getContext("2d").drawImage(step, 0, 0, small.width, small.height);
+    // Enlarged in a few doublings: each one smooths the blockiness a little
+    // more, ending up much softer than a single big stretch.
+    for (let i = 0; i < 3; i++) {
+      const bigger = document.createElement("canvas");
+      bigger.width = small.width * 2;
+      bigger.height = small.height * 2;
+      const bctx = bigger.getContext("2d");
+      bctx.imageSmoothingQuality = "high";
+      bctx.drawImage(small, 0, 0, bigger.width, bigger.height);
+      small = bigger;
+    }
+    canvas.width = small.width;
+    canvas.height = small.height;
+    canvas.getContext("2d").drawImage(small, 0, 0);
     setHidden(canvas, false);
   } catch (e) {
     setHidden(canvas, true);
   }
 }
+
+// Sizes a photo/video to exactly the area it occupies inside the card and
+// says which of its edges border the filled bars, so the stylesheet can feather
+// those edges into the ambient fill instead of leaving a hard line.
+function fitMedia(node) {
+  const w = node.naturalWidth || node.videoWidth;
+  const h = node.naturalHeight || node.videoHeight;
+  const wrap = node.parentElement;
+  if (!w || !h || !wrap) return;
+  const boxW = wrap.clientWidth;
+  const boxH = wrap.clientHeight;
+  if (!boxW || !boxH) return;
+  const scale = Math.min(boxW / w, boxH / h);
+  const fitW = Math.round(w * scale);
+  const fitH = Math.round(h * scale);
+  node.style.width = fitW + "px";
+  node.style.height = fitH + "px";
+  node.classList.toggle("fade-x", fitW < boxW - 1);
+  node.classList.toggle("fade-y", fitH < boxH - 1);
+}
+
+let refitFrame = 0;
+window.addEventListener("resize", () => {
+  if (refitFrame) return;
+  refitFrame = requestAnimationFrame(() => {
+    refitFrame = 0;
+    for (const id of ["img-preview", "video-preview", "back-img", "back-video"]) {
+      if (!el(id).hasAttribute("hidden")) fitMedia(el(id));
+    }
+  });
+});
 
 // ---------- the card underneath ----------
 
@@ -504,8 +548,9 @@ function renderBack(next) {
   entry.promise.then((loaded) => {
     if (backId !== next.id) return;
     // "#t=" makes a paused video show its first frame.
-    if (next.kind === "video") node.onloadeddata = () => paintAmbient(el("back-ambient"), node);
-    else node.onload = () => paintAmbient(el("back-ambient"), node);
+    const ready = () => { fitMedia(node); paintAmbient(el("back-ambient"), node); };
+    if (next.kind === "video") node.onloadeddata = ready;
+    else node.onload = ready;
     node.src = next.kind === "video" ? loaded.url + "#t=0.001" : loaded.url;
     setHidden(node, false);
   }).catch(() => {});
@@ -592,7 +637,10 @@ function showMedia(data, seq) {
     if (data.kind === "image") {
       img.onerror = () => fail(img);
       img.onload = () => {
-        if (seq === renderSeq) paintAmbient(el("ambient"), img);
+        if (seq === renderSeq) {
+          fitMedia(img);
+          paintAmbient(el("ambient"), img);
+        }
         // Decoded before it is shown, so nothing pops in half-drawn.
         const show = () => {
           if (seq === renderSeq) setHidden(img, false);
@@ -610,6 +658,7 @@ function showMedia(data, seq) {
       vid.onpause = stopRingLoop;
       vid.oncanplay = () => {
         if (seq === renderSeq) {
+          fitMedia(vid);
           paintAmbient(el("ambient"), vid);
           setHidden(vid, false);
           setHidden(videoControls, false);
