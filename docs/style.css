@@ -456,6 +456,7 @@ button, input { font: inherit; color: inherit; }
    leaves, so the swipe reveals it instead of an empty background. */
 .card-back {
   --p: 0; /* 0..1: how far the top card has been dragged away */
+  will-change: transform;
   position: absolute;
   inset: 0;
   z-index: 0;
@@ -499,13 +500,16 @@ button, input { font: inherit; color: inherit; }
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
 }
-.badge-icon svg { width: 38px; height: 38px; }
-.badge-like { background: rgba(22, 163, 95, 0.3); }
-.badge-like .badge-icon { color: #16a35f; }
-.badge-nope { background: rgba(224, 56, 79, 0.3); }
-.badge-nope .badge-icon { color: #e0384f; }
-.badge-skip { background: rgba(55, 99, 217, 0.28); }
-.badge-skip .badge-icon { color: #3763d9; }
+.badge-icon svg { display: none; width: 38px; height: 38px; }
+.badge[data-kind="like"] { background: rgba(22, 163, 95, 0.3); }
+.badge[data-kind="like"] .badge-icon { color: #16a35f; }
+.badge[data-kind="like"] .i-like { display: block; }
+.badge[data-kind="nope"] { background: rgba(224, 56, 79, 0.3); }
+.badge[data-kind="nope"] .badge-icon { color: #e0384f; }
+.badge[data-kind="nope"] .i-nope { display: block; }
+.badge[data-kind="skip"] { background: rgba(55, 99, 217, 0.28); }
+.badge[data-kind="skip"] .badge-icon { color: #3763d9; }
+.badge[data-kind="skip"] .i-skip { display: block; }
 
 .media-wrap {
   flex: 1 1 auto;
@@ -518,9 +522,23 @@ button, input { font: inherit; color: inherit; }
 }
 
 .media {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   object-fit: contain;
+  pointer-events: none;
+}
+
+/* The bars around a photo that doesn't fill the card are filled with its own
+   colours, enlarged from a tiny copy of it (a soft, free "blur"). */
+.ambient {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.7;
   pointer-events: none;
 }
 
@@ -743,8 +761,8 @@ button, input { font: inherit; color: inherit; }
 }
 
 /* Get overlays out of the way while a card is being dragged. */
-body.is-dragging .side-actions,
-body.is-dragging .video-controls { opacity: 0; pointer-events: none; }
+.card-zone.dragging .side-actions,
+.card-zone.dragging .video-controls { opacity: 0; pointer-events: none; }
 
 /* ==========================================================================
    Sorting screen: action buttons
@@ -998,8 +1016,15 @@ kbd {
     inset: 0;
     padding: 0;
   }
+  .stage { background: #000; }
   .card-zone { width: 100%; }
   .card, .card-back { border-radius: 0; }
+  .card-back {
+    will-change: transform, opacity;
+    opacity: calc(0.5 + 0.5 * var(--p));
+    transition: transform 0.3s var(--ease), opacity 0.3s var(--ease);
+  }
+  .card-back::after { display: none; }
   .card { border: none; box-shadow: none; }
 
   /* ----- top: folder info + progress ----- */

@@ -86,6 +86,7 @@
       <!-- The card underneath: the next file, revealed as the current one is swiped away. -->
       <div id="card-back" class="card-back is-empty" aria-hidden="true">
         <div class="media-wrap">
+          <canvas id="back-ambient" class="ambient" hidden></canvas>
           <img id="back-img" class="media" alt="" hidden draggable="false" decoding="async">
           <video id="back-video" class="media" hidden muted playsinline preload="auto"></video>
           <div id="back-placeholder" class="back-placeholder" hidden></div>
@@ -97,23 +98,18 @@
       </div>
 
       <div id="card" class="card">
-        <div class="badge badge-nope" id="badge-nope">
+        <!-- One feedback layer for all three gestures (its colour and icon follow data-kind):
+             three full-screen layers were too much for a phone to keep composited. -->
+        <div id="wash" class="badge" data-kind="like">
           <span class="badge-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </span>
-        </div>
-        <div class="badge badge-like" id="badge-like">
-          <span class="badge-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          </span>
-        </div>
-        <div class="badge badge-skip" id="badge-skip">
-          <span class="badge-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+            <svg class="i-like" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <svg class="i-nope" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <svg class="i-skip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
           </span>
         </div>
 
         <div id="media-wrap" class="media-wrap">
+          <canvas id="ambient" class="ambient" hidden></canvas>
           <img id="img-preview" class="media" hidden draggable="false" alt="" decoding="async">
           <video id="video-preview" class="media" hidden loop autoplay playsinline></video>
           <div id="audio-icon-overlay" class="audio-icon-overlay" hidden>

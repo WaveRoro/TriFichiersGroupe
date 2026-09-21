@@ -182,9 +182,27 @@ const RING_CIRCUMFERENCE = 100.53; // 2 * PI * r, r = 16 (see .ring-fill)
 function updateProgressRing() {
   const vid = el("video-preview");
   const ring = el("ring-fill");
-  if (!vid.duration) return;
+  if (!vid.duration || !isFinite(vid.duration)) return;
   const progress = vid.currentTime / vid.duration;
   ring.style.strokeDashoffset = String(RING_CIRCUMFERENCE * (1 - progress));
+}
+
+// "timeupdate" only fires a few times a second, which made the ring advance
+// in visible steps: while the video plays it follows the clock every frame.
+let ringFrame = 0;
+function ringLoop() {
+  ringFrame = 0;
+  updateProgressRing();
+  const vid = el("video-preview");
+  if (!vid.paused && !vid.ended) ringFrame = requestAnimationFrame(ringLoop);
+}
+function startRingLoop() {
+  if (!ringFrame) ringFrame = requestAnimationFrame(ringLoop);
+}
+function stopRingLoop() {
+  if (ringFrame) cancelAnimationFrame(ringFrame);
+  ringFrame = 0;
+  updateProgressRing();
 }
 
 // ---------- speed stats ----------
@@ -404,7 +422,38 @@ function attachMedia(node, id, onFail, afterSet) {
 
 function stopVideo() {
   const vid = el("video-preview");
+  if (ringFrame) { cancelAnimationFrame(ringFrame); ringFrame = 0; }
   try { vid.pause(); vid.removeAttribute("src"); vid.load(); } catch (e) {}
+}
+
+// ---------- ambient fill ----------
+
+// Fills the bars around a photo/video that doesn't fill the card with its own
+// colours: the picture is shrunk to a few pixels and the browser enlarges that
+// smoothly. Drawn once per file, so it costs nothing while swiping.
+function paintAmbient(canvas, source) {
+  const w = source.naturalWidth || source.videoWidth;
+  const h = source.naturalHeight || source.videoHeight;
+  if (!w || !h) return;
+  try {
+    // Two steps: shrinking a large photo straight to a few pixels skips most of it.
+    const step = document.createElement("canvas");
+    const stepScale = 64 / Math.max(w, h);
+    step.width = Math.max(2, Math.round(w * stepScale));
+    step.height = Math.max(2, Math.round(h * stepScale));
+    const sctx = step.getContext("2d");
+    sctx.imageSmoothingQuality = "high";
+    sctx.drawImage(source, 0, 0, step.width, step.height);
+    const scale = 16 / Math.max(w, h);
+    canvas.width = Math.max(2, Math.round(w * scale));
+    canvas.height = Math.max(2, Math.round(h * scale));
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(step, 0, 0, canvas.width, canvas.height);
+    setHidden(canvas, false);
+  } catch (e) {
+    setHidden(canvas, true);
+  }
 }
 
 // ---------- the card underneath ----------
@@ -420,7 +469,10 @@ function clearBack() {
   const vid = el("back-video");
   setHidden(img, true);
   setHidden(vid, true);
+  setHidden("back-ambient", true);
   setHidden("back-placeholder", true);
+  img.onload = null;
+  vid.onloadeddata = null;
   img.removeAttribute("src");
   try { vid.pause(); vid.removeAttribute("src"); vid.load(); } catch (e) {}
 }
@@ -452,6 +504,8 @@ function renderBack(next) {
   entry.promise.then((loaded) => {
     if (backId !== next.id) return;
     // "#t=" makes a paused video show its first frame.
+    if (next.kind === "video") node.onloadeddata = () => paintAmbient(el("back-ambient"), node);
+    else node.onload = () => paintAmbient(el("back-ambient"), node);
     node.src = next.kind === "video" ? loaded.url + "#t=0.001" : loaded.url;
     setHidden(node, false);
   }).catch(() => {});
@@ -459,10 +513,20 @@ function renderBack(next) {
 
 // ---------- the card on top ----------
 
+// One layer serves all three gestures: the strongest one decides its colour
+// and icon, and its opacity follows how far the gesture has gone.
+let washKind = "";
 function setBadges(like, nope, skip) {
-  el("badge-like").style.opacity = like;
-  el("badge-nope").style.opacity = nope;
-  el("badge-skip").style.opacity = skip;
+  const wash = el("wash");
+  const level = Math.max(like, nope, skip);
+  if (level > 0) {
+    const kind = like === level ? "like" : nope === level ? "nope" : "skip";
+    if (kind !== washKind) {
+      washKind = kind;
+      wash.dataset.kind = kind;
+    }
+  }
+  wash.style.opacity = level;
 }
 
 // 0 = card at rest, 1 = card gone. Drives how far the card underneath has
@@ -507,6 +571,7 @@ function showMedia(data, seq) {
   videoControls.classList.remove("controls-faded");
   stopVideo();
   pdfFrame.src = "about:blank";
+  setHidden("ambient", true);
   wrap.classList.add("is-loading");
 
   return new Promise((resolve) => {
@@ -527,6 +592,7 @@ function showMedia(data, seq) {
     if (data.kind === "image") {
       img.onerror = () => fail(img);
       img.onload = () => {
+        if (seq === renderSeq) paintAmbient(el("ambient"), img);
         // Decoded before it is shown, so nothing pops in half-drawn.
         const show = () => {
           if (seq === renderSeq) setHidden(img, false);
@@ -540,8 +606,11 @@ function showMedia(data, seq) {
       setHidden(audioIconOverlay, data.kind !== "audio");
       vid.onerror = () => fail(vid);
       vid.ontimeupdate = updateProgressRing;
+      vid.onplaying = startRingLoop;
+      vid.onpause = stopRingLoop;
       vid.oncanplay = () => {
         if (seq === renderSeq) {
+          paintAmbient(el("ambient"), vid);
           setHidden(vid, false);
           setHidden(videoControls, false);
           setHidden(ring, false);
@@ -807,7 +876,7 @@ function setupDrag() {
   let moved = false;
   let threshold = SWIPE_MAX; // measured once per gesture: reading sizes while moving forces a layout every frame
   let frame = 0;
-  let shown = { like: -1, nope: -1, skip: -1 };
+  let shownLevel = -1;
 
   function badgeLevels() {
     if (isUpwardSwipe()) return { like: 0, nope: 0, skip: Math.min(1, -dy / threshold) };
@@ -822,12 +891,12 @@ function setupDrag() {
     if (!dragging) return;
     const tilt = Math.max(-MAX_TILT_DEG, Math.min(MAX_TILT_DEG, dx / 18));
     card.style.transform = `translate3d(${dx}px, ${dy}px, 0) rotate(${tilt}deg)`;
-    const levels = badgeLevels();
-    for (const key of ["like", "nope", "skip"]) {
-      // Only touch a badge whose opacity actually changes.
-      if (Math.abs(levels[key] - shown[key]) < 0.02 && !(levels[key] === 0 && shown[key] !== 0)) continue;
-      shown[key] = levels[key];
-      el("badge-" + key).style.opacity = levels[key];
+    const { like, nope, skip } = badgeLevels();
+    const level = Math.max(like, nope, skip);
+    // Only touch the feedback layer when it visibly changes.
+    if (Math.abs(level - shownLevel) >= 0.02 || (level === 0 && shownLevel !== 0)) {
+      shownLevel = level;
+      setBadges(like, nope, skip);
     }
     setDragProgress(Math.min(1, Math.hypot(dx, dy) / (threshold * 1.8)));
   }
@@ -835,7 +904,7 @@ function setupDrag() {
   function stopPainting() {
     if (frame) cancelAnimationFrame(frame);
     frame = 0;
-    shown = { like: -1, nope: -1, skip: -1 };
+    shownLevel = -1;
   }
 
   function snapBack() {
@@ -873,7 +942,7 @@ function setupDrag() {
     threshold = Math.max(SWIPE_MIN, Math.min(SWIPE_MAX, card.offsetWidth * 0.25));
     samples = [{ x: e.clientX, y: e.clientY, t: e.timeStamp }];
     downAt = e.timeStamp;
-    shown = { like: -1, nope: -1, skip: -1 };
+    shownLevel = -1;
     card.classList.remove("snap-back");
     card.classList.add("dragging");
     zone.classList.add("dragging");
@@ -888,7 +957,6 @@ function setupDrag() {
       // A finger always wobbles a little: don't start moving the card for it.
       if (Math.hypot(dx, dy) < TAP_SLOP) return;
       moved = true;
-      document.body.classList.add("is-dragging");
     }
     samples.push({ x: e.clientX, y: e.clientY, t: e.timeStamp });
     while (samples.length > 2 && e.timeStamp - samples[0].t > 100) samples.shift();
@@ -899,7 +967,6 @@ function setupDrag() {
     if (!dragging) return;
     dragging = false;
     stopPainting();
-    document.body.classList.remove("is-dragging");
     zone.classList.remove("dragging");
     card.classList.remove("dragging");
 
