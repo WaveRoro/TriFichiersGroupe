@@ -543,3 +543,23 @@ test("loading never downloads a whole folder listing just to find a small file",
   assert.equal(s.drive.calls.findChildren, 2, "one name lookup each for the progress folder and the legacy file");
   assert.equal(s.drive.calls.listChildren, 1, "only the scan lists children");
 });
+
+// ---------- lookahead (feeds the card drawn underneath the current one) ----------
+
+test("upcoming() describes the next files the way the card underneath displays them", async () => {
+  const store = new FakeStore();
+  store.addFile("a.jpg", "root", { size: 2048 });
+  store.addFile("b.mp4", "root", { size: 3 * 1024 * 1024 });
+  store.addFile("c.txt", "root", { size: 10 });
+  const sorter = await open(store);
+  const current = await sorter.current();
+  const next = sorter.upcoming(2);
+  assert.equal(next.length, 2);
+  assert.ok(!next.some((f) => f.id === current.id), "the current file is not part of the lookahead");
+  for (const f of next) {
+    const source = store.files.get(f.id);
+    assert.equal(f.name, source.name);
+    assert.equal(f.ext, "." + source.name.split(".").pop());
+    assert.ok(f.sizeH && f.kind);
+  }
+});

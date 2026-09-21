@@ -533,11 +533,18 @@ export class DriveSorter {
     return this._fileInfo(this.queue[this.index]);
   }
 
-  // Lightweight lookahead (id + kind only) used to prefetch several files ahead.
+  // Lightweight lookahead used to prefetch several files ahead and to draw the
+  // card underneath the current one (so it carries what that card displays).
   upcoming(n) {
     if (!this.rootId) return [];
     const end = Math.min(this.index + 1 + n, this.queue.length);
-    return this.queue.slice(this.index + 1, end).map((f) => ({ id: f.id, kind: f.kind }));
+    return this.queue.slice(this.index + 1, end).map((f) => ({
+      id: f.id,
+      kind: f.kind,
+      name: f.name,
+      ext: extOf(f.name),
+      sizeH: humanSize(f.size),
+    }));
   }
 
   // ---------- decisions ----------

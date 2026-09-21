@@ -2,26 +2,31 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <title>Tri Photos & Videos</title>
 <link rel="stylesheet" href="style.css">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 
-<button id="theme-toggle" class="theme-toggle" title="Theme">
-  <svg id="theme-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+<button id="theme-toggle" class="theme-toggle" title="Theme" aria-label="Changer de theme">
+  <svg id="theme-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></svg>
 </button>
 
 <div id="signin-screen" class="screen">
   <div class="start-box">
-    <svg class="start-icon" viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
-    </svg>
-    <h1>Tri Photos & Videos</h1>
-    <p>Trie a plusieurs les photos et videos stockees sur Google Drive.</p>
+    <div class="brand-mark">
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="3"/>
+        <circle cx="8.5" cy="8.5" r="1.5"/>
+        <polyline points="21 15 16 10 5 21"/>
+      </svg>
+    </div>
+    <h1>Tri Photos &amp; Videos</h1>
+    <p class="lead">Trie a plusieurs les photos et videos stockees sur Google Drive.</p>
     <button id="btn-signin" class="btn btn-primary btn-big">Se connecter avec Google</button>
-    <p id="signin-error" class="hint" style="color:var(--accent-red)" hidden></p>
+    <p id="signin-error" class="hint is-error" hidden></p>
   </div>
 </div>
 
@@ -29,42 +34,45 @@
   <div class="start-box">
     <h1>Choisir un dossier</h1>
     <div id="recent-wrap" class="recent-wrap" hidden>
-      <div class="recent-label">Dernier dossier :</div>
-      <button id="btn-recent" class="btn btn-secondary"></button>
+      <div class="recent-label">Dernier dossier</div>
+      <button id="btn-recent" class="folder-list-item is-recent"></button>
     </div>
     <p id="folder-list-status" class="hint">Recherche de tes dossiers Drive...</p>
     <div id="folder-list" class="folder-list"></div>
     <details class="folder-fallback">
-      <summary class="btn-link">Le dossier n'apparait pas ? Colle un lien directement</summary>
+      <summary>Le dossier n'apparait pas ? Colle un lien</summary>
       <input id="folder-input" class="folder-input" type="text" placeholder="https://drive.google.com/drive/folders/...">
       <button id="btn-open-folder" class="btn btn-primary btn-big">Ouvrir</button>
     </details>
-    <p id="folder-error" class="hint" style="color:var(--accent-red)" hidden></p>
-    <button id="btn-signout" class="btn-link" style="margin-top:20px">Se deconnecter</button>
+    <p id="folder-error" class="hint is-error" hidden></p>
+    <button id="btn-signout" class="btn-link subtle">Se deconnecter</button>
   </div>
 </div>
 
 <div id="loading-screen" class="screen" hidden>
   <div class="start-box">
-    <p id="loading-text">Chargement du dossier...</p>
+    <div class="spinner"></div>
+    <p id="loading-text" class="lead">Chargement du dossier...</p>
   </div>
 </div>
 
 <div id="app-screen" class="screen" hidden>
   <header class="topbar">
-    <div id="topbar-detail">
-      <div class="folder-line">
-        <span id="folder-path" class="folder-path"></span>
-        <button id="btn-change-folder" class="btn-link">changer</button>
+    <div id="topbar-detail" class="topbar-detail">
+      <div class="topbar-inner">
+        <div class="folder-line">
+          <span id="folder-path" class="folder-path"></span>
+          <button id="btn-change-folder" class="btn-link">changer</button>
+        </div>
+        <div class="stats">
+          <span id="stat-remaining">0</span> restants
+          &middot; <span id="stat-kept">0</span> gardes
+          &middot; <span id="stat-trashed">0</span> a la poubelle
+        </div>
+        <div id="stat-speed" class="stat-speed" hidden></div>
+        <div id="stat-people" class="stat-people" hidden></div>
+        <div id="filter-bar" class="filter-bar" hidden></div>
       </div>
-      <div class="stats">
-        <span id="stat-remaining">0</span> restants
-        &middot; <span id="stat-kept">0</span> gardes
-        &middot; <span id="stat-trashed">0</span> a la poubelle
-      </div>
-      <div id="stat-speed" class="stat-speed" hidden></div>
-      <div id="stat-people" class="stat-people" hidden></div>
-      <div id="filter-bar" class="filter-bar" hidden></div>
     </div>
     <div class="progress-row">
       <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
@@ -73,30 +81,55 @@
   </header>
 
   <main class="stage">
-    <div class="card-zone">
+    <div id="card-zone" class="card-zone">
+
+      <!-- The card underneath: the next file, revealed as the current one is swiped away. -->
+      <div id="card-back" class="card-back is-empty" aria-hidden="true">
+        <div class="media-wrap">
+          <img id="back-img" class="media" alt="" hidden draggable="false">
+          <video id="back-video" class="media" hidden muted playsinline preload="auto"></video>
+          <div id="back-placeholder" class="back-placeholder" hidden></div>
+        </div>
+        <div class="card-footer">
+          <div id="back-name" class="file-name"></div>
+          <div id="back-meta" class="file-meta"></div>
+        </div>
+      </div>
+
       <div id="card" class="card">
-        <div class="badge badge-nope" id="badge-nope">REFUSE</div>
-        <div class="badge badge-like" id="badge-like">GARDE</div>
+        <div class="badge badge-nope" id="badge-nope">
+          <span class="badge-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </span>
+        </div>
+        <div class="badge badge-like" id="badge-like">
+          <span class="badge-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </span>
+        </div>
+        <div class="badge badge-skip" id="badge-skip">
+          <span class="badge-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+          </span>
+        </div>
 
         <div id="media-wrap" class="media-wrap">
-          <img id="img-preview" class="media" hidden draggable="false">
+          <img id="img-preview" class="media" hidden draggable="false" alt="">
           <video id="video-preview" class="media" hidden loop autoplay playsinline></video>
           <div id="audio-icon-overlay" class="audio-icon-overlay" hidden>
             <div class="file-icon">AUDIO</div>
           </div>
-          <svg id="video-progress-ring" class="video-progress-ring" viewBox="0 0 36 36" hidden>
-            <circle class="ring-track" cx="18" cy="18" r="15.5"/>
-            <circle id="ring-fill" class="ring-fill" cx="18" cy="18" r="15.5"/>
-          </svg>
           <div id="video-controls" class="video-controls" hidden>
-            <button id="btn-mute" class="btn-mute" title="Couper / activer le son">
-              <svg id="icon-mute-toggle" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="4,9 4,15 8,15 13,20 13,4 8,9" fill="currentColor" stroke="none"/>
-                <path d="M16 8a5 5 0 0 1 0 8"/>
-                <path d="M18.5 5.5a9 9 0 0 1 0 13"/>
+            <div class="mute-wrap">
+              <svg id="video-progress-ring" class="video-progress-ring" viewBox="0 0 36 36" hidden>
+                <circle class="ring-track" cx="18" cy="18" r="16"/>
+                <circle id="ring-fill" class="ring-fill" cx="18" cy="18" r="16"/>
               </svg>
-            </button>
-            <input type="range" id="volume-slider" class="volume-slider" min="0" max="100" value="70">
+              <button id="btn-mute" class="btn-mute" title="Couper / activer le son" aria-label="Couper ou activer le son">
+                <svg id="icon-mute-toggle" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+              </button>
+            </div>
+            <input type="range" id="volume-slider" class="volume-slider" min="0" max="100" value="70" aria-label="Volume">
           </div>
           <iframe id="pdf-preview" class="pdf-frame" hidden></iframe>
           <div id="text-preview" class="text-preview" hidden>
@@ -116,31 +149,45 @@
           <div id="file-meta" class="file-meta"></div>
         </div>
       </div>
-    </div>
 
-    <div id="side-actions" class="side-actions">
-      <button id="btn-open-external" class="btn-icon" title="Ouvrir dans un nouvel onglet">
-        <svg class="btn-icon-svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-          <polyline points="15 3 21 3 21 9"/>
-          <line x1="10" y1="14" x2="21" y2="3"/>
-        </svg>
-        <span class="btn-icon-label">Ouvrir</span>
-      </button>
+      <div id="side-actions" class="side-actions">
+        <button id="btn-open-external" class="glass-btn" title="Ouvrir dans un nouvel onglet" aria-label="Ouvrir dans un nouvel onglet">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
+          </svg>
+        </button>
+      </div>
+
+      <div id="newfiles-banner" class="newfiles-banner" hidden>
+        <span id="newfiles-message" class="newfiles-message"></span>
+        <button id="btn-newfiles-refresh" class="newfiles-refresh">Maintenant</button>
+        <button id="btn-newfiles-dismiss" class="newfiles-dismiss" title="Fermer" aria-label="Fermer">&times;</button>
+      </div>
     </div>
   </main>
 
   <footer id="controls-bar" class="controls">
-    <button id="btn-undo" class="pillBtn" title="Annuler">
-      <span class="pillBtnIcon">&#8630;</span><span class="pillBtnLabel">Annuler</span>
+    <button id="btn-undo" class="circle-btn" title="Annuler (Ctrl+Z)" aria-label="Annuler">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
     </button>
-    <button id="btn-reject" class="btn btn-round btn-reject" title="Refuser (Fleche gauche)">&times;</button>
-    <button id="btn-accept" class="btn btn-round btn-accept" title="Garder (Fleche droite)">&#10003;</button>
-    <button id="btn-skip" class="pillBtn" title="Passer pour plus tard (Espace)">
-      <span class="pillBtnIcon">&raquo;</span><span class="pillBtnLabel">Passer</span>
+    <button id="btn-reject" class="circle-btn lg reject" title="Refuser (Fleche gauche)" aria-label="Refuser">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <button id="btn-accept" class="circle-btn lg accept" title="Garder (Fleche droite)" aria-label="Garder">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+    </button>
+    <button id="btn-skip" class="circle-btn" title="Passer pour plus tard (Espace)" aria-label="Passer">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
     </button>
   </footer>
-  <div class="keys-hint">&larr; refuser &nbsp;&middot;&nbsp; &rarr; garder &nbsp;&middot;&nbsp; Espace passer &nbsp;&middot;&nbsp; Ctrl+Z annuler</div>
+  <div class="keys-hint">
+    <span><kbd>&larr;</kbd> refuser</span>
+    <span><kbd>&rarr;</kbd> garder</span>
+    <span><kbd>Espace</kbd> passer</span>
+    <span><kbd>Ctrl</kbd> <kbd>Z</kbd> annuler</span>
+  </div>
 
   <div id="reorg-overlay" class="reorg-overlay" hidden>
     <div class="reorg-box">
@@ -148,18 +195,15 @@
       <p id="reorg-message">Repartition des fichiers...</p>
     </div>
   </div>
-
-  <div id="newfiles-banner" class="newfiles-banner" hidden>
-    <span id="newfiles-message" class="newfiles-message"></span>
-    <button id="btn-newfiles-refresh" class="newfiles-refresh">Maintenant</button>
-    <button id="btn-newfiles-dismiss" class="newfiles-dismiss" title="Fermer" aria-label="Fermer">&times;</button>
-  </div>
 </div>
 
 <div id="done-screen" class="screen" hidden>
   <div class="start-box">
-    <h1>Termine !</h1>
-    <p id="done-summary"></p>
+    <div class="brand-mark is-success">
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+    </div>
+    <h1>Termine</h1>
+    <p id="done-summary" class="lead"></p>
     <button id="btn-choose-again" class="btn btn-primary btn-big">Trier un autre dossier</button>
     <button id="btn-restart-folder" class="btn btn-secondary btn-big">Recommencer ce dossier</button>
   </div>

@@ -13,7 +13,6 @@ let busy = false; // a swipe/undo is in flight
 let opening = false; // a folder is being opened
 let dragging = false;
 let startX = 0, startY = 0, dx = 0, dy = 0;
-const SWIPE_THRESHOLD = 120;
 
 const el = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -25,35 +24,31 @@ function setHidden(elOrId, hide) {
 }
 
 // ---------- mobile immersive mode ----------
-// On phones, the surrounding text/buttons can cover part of the photo or
-// video. By default (mobile only - this is a no-op on desktop, which has
-// room to show everything at once) most of it is hidden, leaving just the
-// progress bar (which moves up to take the vacated space). Tapping the card
-// reveals everything for a few seconds; dragging to swipe deliberately does
-// not, so it never fights with the accept/reject gesture.
-const CHROME_IDS = ["topbar-detail", "side-actions", "card-footer", "controls-bar"];
-const CHROME_REVEAL_MS = 3000;
-let chromeHideTimer = null;
+// On phones the text and buttons would cover the photo, so by default only a
+// thin progress bar is left. A tap on the photo shows everything, another tap
+// hides it again (a swipe never toggles it, so it can't fight the gesture).
+// This is purely a CSS class: desktop has room for everything and ignores it.
+const CHROME_KEY = "chromeVisible";
+let chromeVisible = false;
 
 function isMobileLayout() {
   return window.matchMedia("(max-width: 640px)").matches;
 }
 
-function setChromeVisible(visible) {
-  const hide = isMobileLayout() ? !visible : false;
-  for (const id of CHROME_IDS) setHidden(id, hide);
+function applyChrome() {
+  el("app-screen").classList.toggle("chrome-hidden", !chromeVisible);
 }
 
-function revealChromeTemporarily() {
-  setChromeVisible(true);
-  clearTimeout(chromeHideTimer);
-  chromeHideTimer = setTimeout(() => setChromeVisible(false), CHROME_REVEAL_MS);
+function loadChrome() {
+  try { chromeVisible = localStorage.getItem(CHROME_KEY) === "true"; } catch (e) {}
+  applyChrome();
 }
 
-// If the layout ever crosses from mobile to desktop width mid-session
-// (a resized window, a rotated tablet), make sure nothing stays stuck
-// hidden - desktop always shows everything regardless of chrome state.
-window.addEventListener("resize", () => { if (!isMobileLayout()) setChromeVisible(true); });
+function toggleChrome() {
+  chromeVisible = !chromeVisible;
+  try { localStorage.setItem(CHROME_KEY, String(chromeVisible)); } catch (e) {}
+  applyChrome();
+}
 
 const screens = {
   signin: el("signin-screen"),
@@ -65,12 +60,17 @@ const screens = {
 
 function showScreen(name) {
   for (const k in screens) setHidden(screens[k], k !== name);
+  document.body.dataset.screen = name;
 }
 
 function toast(msg) {
   const t = el("toast");
   t.textContent = msg;
   setHidden(t, false);
+  // Re-trigger the entrance animation when a toast replaces another one.
+  t.style.animation = "none";
+  void t.offsetWidth;
+  t.style.animation = "";
   clearTimeout(toast._timer);
   toast._timer = setTimeout(() => setHidden(t, true), 3500);
 }
@@ -169,7 +169,7 @@ function setupVideoControlsAutoHide() {
   });
 }
 
-const RING_CIRCUMFERENCE = 97.39;
+const RING_CIRCUMFERENCE = 100.53; // 2 * PI * r, r = 16 (see .ring-fill)
 function updateProgressRing() {
   const vid = el("video-preview");
   const ring = el("ring-fill");
@@ -237,7 +237,6 @@ async function toggleFilter(kind, currentActive) {
   if (busy || coord.reorganizing || !coord.isOpen) return;
   const next = new Set(currentActive);
   if (next.has(kind)) next.delete(kind); else next.add(kind);
-  clearBlobCache();
   const result = await sorter.setFilters(Array.from(next));
   resetSpeedStats();
   render(result);
@@ -279,7 +278,7 @@ const ui = {
     el("newfiles-message").textContent = `${newFilesLabel(state.count)} - actualisation dans ${state.secondsLeft}s...`;
     setHidden("newfiles-banner", false);
   },
-  invalidateMedia() { clearBlobCache(); },
+  invalidateMedia() { pruneToQueue(); },
   isVisible() { return document.visibilityState === "visible"; },
   setLoadingText(text) { el("loading-text").textContent = text; },
 };
@@ -316,159 +315,7 @@ function fmtCounts(data) {
   }
 }
 
-// Blob cache keyed by file id, used to preload upcoming files while the
-// current one is being viewed, and to hand render() an already-resolved blob
-// when the user swipes to it (feels instant instead of re-fetching). Each
-// entry can be cancelled, so a prefetch nobody needs any more stops
-// downloading instead of running to completion in the background.
-const blobCache = new Map(); // id -> { promise, controller }
-function getBlob(id) {
-  let entry = blobCache.get(id);
-  if (!entry) {
-    const controller = new AbortController();
-    const promise = drive.mediaBlob(id, { signal: controller.signal }).catch((e) => {
-      blobCache.delete(id);
-      throw e;
-    });
-    entry = { promise, controller };
-    blobCache.set(id, entry);
-  }
-  return entry.promise;
-}
-// Drops (and cancels) cached/in-flight blobs, except those in `keep`. Called
-// with no argument when the queue is rebuilt (new folder, filter, reorg).
-function clearBlobCache(keep = null) {
-  for (const [id, entry] of blobCache) {
-    if (keep && keep.has(id)) continue;
-    entry.controller.abort();
-    blobCache.delete(id);
-  }
-}
-
-// Object URL currently assigned to the visible media element. Revoked and
-// replaced each time a new file is shown, so we don't leak memory over a
-// long sorting session.
-let liveObjectUrl = null;
-function loadMediaSrc(el, id, errBox, afterSet) {
-  getBlob(id).then((blob) => {
-    if (!current || current.id !== id) return;
-    blobCache.delete(id);
-    if (liveObjectUrl) URL.revokeObjectURL(liveObjectUrl);
-    liveObjectUrl = URL.createObjectURL(blob);
-    // Clearing src before reassigning it works around a Safari quirk where
-    // reusing the same <img>/<video> element for a new blob: URL sometimes
-    // doesn't refresh - it forces Safari to fully drop the previous source
-    // first instead of possibly reusing stale internal state.
-    el.removeAttribute("src");
-    el.src = liveObjectUrl;
-    if (afterSet) afterSet();
-  }).catch(() => {
-    if (!current || current.id !== id) return;
-    setHidden(el, true);
-    setHidden(errBox, false);
-  });
-}
-
-function stopVideo() {
-  const vid = el("video-preview");
-  try { vid.pause(); vid.removeAttribute("src"); vid.load(); } catch (e) {}
-}
-
-function resetCardTransform() {
-  const card = el("card");
-  card.classList.remove("fly-out", "snap-back", "dragging", "pop");
-  card.style.transform = "";
-  card.style.opacity = "1";
-  el("badge-nope").style.opacity = 0;
-  el("badge-like").style.opacity = 0;
-  void card.offsetWidth;
-  card.classList.add("pop");
-}
-
-function render(data) {
-  if (!data || data.done) {
-    fmtCounts(data || {});
-    showScreen("done");
-    const kept = data ? data.kept : 0;
-    const trashed = data ? (data.trashed ?? 0) : 0;
-    el("done-summary").textContent = `${kept} fichier(s) garde(s), ${trashed} envoye(s) a la poubelle.`;
-    stopVideo();
-    current = null;
-    return;
-  }
-  // A reorganisation or new files can bring cards back after "Termine !".
-  if (screens.app.hasAttribute("hidden")) {
-    showScreen("app");
-    setChromeVisible(false);
-  }
-  current = data;
-  fmtCounts(data);
-  resetCardTransform();
-
-  el("file-name").textContent = data.name;
-  el("file-meta").textContent = `${data.sizeH} - ${data.ext || "sans extension"}`;
-
-  const img = el("img-preview");
-  const vid = el("video-preview");
-  const other = el("other-preview");
-  const audioIconOverlay = el("audio-icon-overlay");
-  const pdfFrame = el("pdf-preview");
-  const textPreview = el("text-preview");
-  const errBox = el("preview-error");
-  const videoControls = el("video-controls");
-  const ring = el("video-progress-ring");
-  const ringFill = el("ring-fill");
-
-  setHidden(img, true); setHidden(vid, true); setHidden(other, true); setHidden(errBox, true);
-  setHidden(audioIconOverlay, true); setHidden(pdfFrame, true); setHidden(textPreview, true);
-  setHidden(videoControls, true);
-  setHidden(ring, true);
-  ringFill.style.strokeDashoffset = String(RING_CIRCUMFERENCE);
-  clearTimeout(controlsHideTimer);
-  videoControls.classList.remove("controls-faded");
-  stopVideo();
-  pdfFrame.src = "about:blank";
-  if (liveObjectUrl) { URL.revokeObjectURL(liveObjectUrl); liveObjectUrl = null; }
-
-  if (data.kind === "image") {
-    img.onerror = () => { setHidden(img, true); setHidden(errBox, false); };
-    img.onload = () => setHidden(img, false);
-    loadMediaSrc(img, data.id, errBox);
-  } else if (data.kind === "video" || data.kind === "audio") {
-    applyAudioPrefs();
-    setHidden(audioIconOverlay, data.kind !== "audio");
-    vid.onerror = () => { setHidden(vid, true); setHidden(errBox, false); };
-    vid.ontimeupdate = updateProgressRing;
-    vid.oncanplay = () => {
-      setHidden(vid, false);
-      setHidden(videoControls, false);
-      setHidden(ring, false);
-      vid.play().catch(() => {});
-      showVideoControls();
-    };
-    loadMediaSrc(vid, data.id, errBox, () => vid.load());
-  } else if (data.kind === "pdf") {
-    setHidden(pdfFrame, false);
-    pdfFrame.onerror = () => { setHidden(pdfFrame, true); setHidden(errBox, false); };
-    loadMediaSrc(pdfFrame, data.id, errBox);
-  } else if (data.kind === "text") {
-    setHidden(textPreview, false);
-    el("text-content").textContent = "Chargement...";
-    drive.readTextFile(data.id).then((text) => {
-      if (!current || current.id !== data.id) return;
-      el("text-content").textContent = text;
-    }).catch(() => {
-      if (!current || current.id !== data.id) return;
-      setHidden(textPreview, true);
-      setHidden(errBox, false);
-    });
-  } else {
-    setHidden(other, false);
-    el("other-ext").textContent = (data.ext || "?").toUpperCase();
-  }
-
-  preload();
-}
+// ---------- media cache ----------
 
 // How many upcoming files to keep prefetched, and how many of those fetch
 // at once. Deeper prefetch means fewer waits when swiping fast, but these
@@ -478,40 +325,318 @@ function render(data) {
 const PRELOAD_DEPTH = 5;
 const PRELOAD_CONCURRENCY = 2;
 
+// One entry per file id: the (cancellable) download and, once it has
+// arrived, an object URL for it. Kept for the file on screen and those
+// coming up, so swiping to the next one shows an image that is already
+// here instead of fetching it. Anything no longer needed is cancelled and
+// its URL released, so a long session doesn't pile up memory.
+const mediaCache = new Map(); // id -> { promise, controller, url }
+
+function mediaEntry(id) {
+  let entry = mediaCache.get(id);
+  if (entry) return entry;
+  const controller = new AbortController();
+  entry = { controller, url: null, promise: null };
+  entry.promise = drive.mediaBlob(id, { signal: controller.signal }).then((blob) => {
+    if (controller.signal.aborted) throw new Error("cancelled");
+    entry.url = URL.createObjectURL(blob);
+    return entry;
+  });
+  // A failed download must not stay cached (the next attempt should retry),
+  // and having a handler here keeps a prefetch nobody awaits from being
+  // reported as an unhandled rejection.
+  const failed = entry;
+  entry.promise.catch(() => { if (mediaCache.get(id) === failed) mediaCache.delete(id); });
+  mediaCache.set(id, entry);
+  return entry;
+}
+
+function dropMedia(id) {
+  const entry = mediaCache.get(id);
+  if (!entry) return;
+  entry.controller.abort();
+  if (entry.url) URL.revokeObjectURL(entry.url);
+  mediaCache.delete(id);
+}
+
+// Keeps only the files in `keepIds` (none by default).
+function pruneMedia(keepIds = []) {
+  const keep = new Set(keepIds);
+  for (const id of [...mediaCache.keys()]) if (!keep.has(id)) dropMedia(id);
+}
+
+function pruneToQueue() {
+  pruneMedia([current?.id, ...sorter.upcoming(PRELOAD_DEPTH).map((f) => f.id)]);
+}
+
+// Points a preview element at a file once it has downloaded. Ignored if the
+// user has moved on to another file by then.
+function attachMedia(node, id, onFail, afterSet) {
+  mediaEntry(id).promise.then((entry) => {
+    if (!current || current.id !== id) return;
+    // Clearing src before reassigning it works around a Safari quirk where
+    // reusing the same <img>/<video> element for a new blob: URL sometimes
+    // doesn't refresh - it forces Safari to fully drop the previous source
+    // first instead of possibly reusing stale internal state.
+    node.removeAttribute("src");
+    node.src = entry.url;
+    if (afterSet) afterSet();
+  }).catch(() => {
+    if (current && current.id === id) onFail();
+  });
+}
+
+function stopVideo() {
+  const vid = el("video-preview");
+  try { vid.pause(); vid.removeAttribute("src"); vid.load(); } catch (e) {}
+}
+
+// ---------- the card underneath ----------
+
+// Shows the next file behind the current one, so a swipe reveals it (with its
+// name) instead of an empty background - and so that when it becomes the
+// current card nothing changes on screen.
+let backId = null;
+
+function clearBack() {
+  const img = el("back-img");
+  const vid = el("back-video");
+  setHidden(img, true);
+  setHidden(vid, true);
+  setHidden("back-placeholder", true);
+  img.removeAttribute("src");
+  try { vid.pause(); vid.removeAttribute("src"); vid.load(); } catch (e) {}
+}
+
+function renderBack(next) {
+  const back = el("card-back");
+  if (!next) {
+    backId = null;
+    back.classList.add("is-empty");
+    clearBack();
+    return;
+  }
+  back.classList.remove("is-empty");
+  if (backId === next.id) return;
+  backId = next.id;
+  clearBack();
+  el("back-name").textContent = next.name;
+  el("back-meta").textContent = `${next.sizeH} - ${next.ext || "sans extension"}`;
+
+  if (next.kind !== "image" && next.kind !== "video") {
+    const placeholder = el("back-placeholder");
+    placeholder.textContent = (next.ext || "fichier").toUpperCase();
+    setHidden(placeholder, false);
+    return;
+  }
+  const entry = mediaCache.get(next.id);
+  if (!entry) return;
+  const node = next.kind === "image" ? el("back-img") : el("back-video");
+  entry.promise.then((loaded) => {
+    if (backId !== next.id) return;
+    // "#t=" makes a paused video show its first frame.
+    node.src = next.kind === "video" ? loaded.url + "#t=0.001" : loaded.url;
+    setHidden(node, false);
+  }).catch(() => {});
+}
+
+// ---------- the card on top ----------
+
+function setBadges(like, nope, skip) {
+  el("badge-like").style.opacity = like;
+  el("badge-nope").style.opacity = nope;
+  el("badge-skip").style.opacity = skip;
+}
+
+// 0 = card at rest, 1 = card gone. Drives how far the card underneath has
+// grown (see .card-back in the stylesheet).
+function setDragProgress(p) {
+  el("card-zone").style.setProperty("--p", String(p));
+}
+
+function resetCardTransform({ pop = false } = {}) {
+  const card = el("card");
+  card.classList.remove("fly-out", "snap-back", "dragging", "pop");
+  // Everything jumps back at once: no fading badge or sliding card left over.
+  card.classList.add("instant");
+  card.style.transform = "";
+  card.style.opacity = "1";
+  setBadges(0, 0, 0);
+  setDragProgress(0);
+  void card.offsetWidth;
+  card.classList.remove("instant");
+  if (pop) card.classList.add("pop");
+}
+
+// Shows `data`'s media in the preview area. Resolves once it is on screen (or
+// has failed), which is when a swap from the card underneath is invisible.
+function showMedia(data, seq) {
+  const img = el("img-preview");
+  const vid = el("video-preview");
+  const other = el("other-preview");
+  const audioIconOverlay = el("audio-icon-overlay");
+  const pdfFrame = el("pdf-preview");
+  const textPreview = el("text-preview");
+  const errBox = el("preview-error");
+  const videoControls = el("video-controls");
+  const ring = el("video-progress-ring");
+  const wrap = el("media-wrap");
+
+  for (const node of [img, vid, other, errBox, audioIconOverlay, pdfFrame, textPreview, videoControls, ring]) {
+    setHidden(node, true);
+  }
+  el("ring-fill").style.strokeDashoffset = String(RING_CIRCUMFERENCE);
+  clearTimeout(controlsHideTimer);
+  videoControls.classList.remove("controls-faded");
+  stopVideo();
+  pdfFrame.src = "about:blank";
+  wrap.classList.add("is-loading");
+
+  return new Promise((resolve) => {
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      if (seq === renderSeq) wrap.classList.remove("is-loading");
+      resolve();
+    };
+    const fail = (node) => {
+      if (seq !== renderSeq) return finish();
+      setHidden(node, true);
+      setHidden(errBox, false);
+      finish();
+    };
+
+    if (data.kind === "image") {
+      img.onerror = () => fail(img);
+      img.onload = () => {
+        // Decoded before it is shown, so nothing pops in half-drawn.
+        const show = () => {
+          if (seq === renderSeq) setHidden(img, false);
+          finish();
+        };
+        (img.decode ? img.decode() : Promise.resolve()).then(show, show);
+      };
+      attachMedia(img, data.id, () => fail(img));
+    } else if (data.kind === "video" || data.kind === "audio") {
+      applyAudioPrefs();
+      setHidden(audioIconOverlay, data.kind !== "audio");
+      vid.onerror = () => fail(vid);
+      vid.ontimeupdate = updateProgressRing;
+      vid.oncanplay = () => {
+        if (seq === renderSeq) {
+          setHidden(vid, false);
+          setHidden(videoControls, false);
+          setHidden(ring, false);
+          vid.play().catch(() => {});
+          showVideoControls();
+        }
+        finish();
+      };
+      attachMedia(vid, data.id, () => fail(vid), () => vid.load());
+    } else if (data.kind === "pdf") {
+      setHidden(pdfFrame, false);
+      pdfFrame.onerror = () => fail(pdfFrame);
+      attachMedia(pdfFrame, data.id, () => fail(pdfFrame), finish);
+    } else if (data.kind === "text") {
+      setHidden(textPreview, false);
+      el("text-content").textContent = "Chargement...";
+      drive.readTextFile(data.id).then((text) => {
+        if (current && current.id === data.id) el("text-content").textContent = text;
+        finish();
+      }).catch(() => {
+        if (current && current.id === data.id) fail(textPreview);
+        else finish();
+      });
+    } else {
+      setHidden(other, false);
+      el("other-ext").textContent = (data.ext || "?").toUpperCase();
+      finish();
+    }
+  });
+}
+
+// After a decision the card that flew away stays invisible until the next
+// file is ready to take its place exactly where the card underneath already
+// shows it. Waiting is capped so a slow download never leaves an empty screen.
+const SEAMLESS_MAX_WAIT_MS = 350;
+let renderSeq = 0;
+
+// Returns a promise that resolves once the card is on screen again (only
+// meaningful with `seamless`, so callers can keep input locked until then).
+function render(data, { seamless = false } = {}) {
+  const seq = ++renderSeq;
+  if (!data || data.done) {
+    fmtCounts(data || {});
+    showScreen("done");
+    const kept = data ? data.kept : 0;
+    const trashed = data ? (data.trashed ?? 0) : 0;
+    el("done-summary").textContent = `${kept} fichier(s) garde(s), ${trashed} envoye(s) a la poubelle.`;
+    stopVideo();
+    current = null;
+    renderBack(null);
+    pruneMedia();
+    return Promise.resolve();
+  }
+  // A reorganisation or new files can bring cards back after "Termine".
+  if (screens.app.hasAttribute("hidden")) showScreen("app");
+  current = data;
+  fmtCounts(data);
+  if (!seamless) resetCardTransform({ pop: true });
+
+  el("file-name").textContent = data.name;
+  el("file-meta").textContent = `${data.sizeH} - ${data.ext || "sans extension"}`;
+
+  const ready = showMedia(data, seq);
+  preload();
+  if (!seamless) return Promise.resolve();
+  return Promise.race([ready, sleep(SEAMLESS_MAX_WAIT_MS)]).then(() => {
+    if (seq === renderSeq) resetCardTransform();
+  });
+}
+
 function preload() {
   const upcoming = sorter.upcoming(PRELOAD_DEPTH);
   // Anything cached or downloading that is no longer coming up (skipped,
   // reassigned, filtered out) is cancelled rather than left to finish.
-  clearBlobCache(new Set([current?.id, ...upcoming.map((f) => f.id)]));
+  pruneMedia([current?.id, ...upcoming.map((f) => f.id)]);
   const items = upcoming.filter((f) => f.kind === "image" || f.kind === "video" || f.kind === "audio");
   let i = 0;
   const runNext = () => {
     if (i >= items.length) return;
     const item = items[i++];
-    getBlob(item.id).catch(() => {}).then(runNext);
+    mediaEntry(item.id).promise.catch(() => {}).then(runNext);
   };
   for (let k = 0; k < PRELOAD_CONCURRENCY; k++) runNext();
+  renderBack(upcoming[0] || null);
 }
 
 // ---------- actions ----------
 
 const FLY_DISTANCE = 900;
-const FLY_MS = 260;
+const FLY_MS = 280; // matches .card.fly-out in the stylesheet
 
-function animateOut(action) {
+function flyOut(transform, badges) {
   const card = el("card");
-  const dir = action === "accept" ? 1 : -1;
+  card.classList.remove("dragging", "snap-back");
   card.classList.add("fly-out");
-  card.style.transform = `translate(${dir * FLY_DISTANCE}px, -40px) rotate(${dir * 30}deg)`;
+  card.style.transform = transform;
   card.style.opacity = "0";
+  setBadges(...badges);
+  setDragProgress(1);
   return sleep(FLY_MS);
 }
+
+function animateOut(action) {
+  const dir = action === "accept" ? 1 : -1;
+  return flyOut(
+    `translate(${dir * FLY_DISTANCE}px, -40px) rotate(${dir * 24}deg)`,
+    dir > 0 ? [1, 0, 0] : [0, 1, 0],
+  );
+}
+
 function animateSkip() {
-  const card = el("card");
-  card.classList.add("fly-out");
-  card.style.transform = "translateY(-700px) scale(0.92)";
-  card.style.opacity = "0";
-  return sleep(FLY_MS);
+  return flyOut("translateY(-800px) scale(0.94)", [0, 0, 1]);
 }
 
 // After the card has flown away, a reorganisation or leaving the folder may
@@ -523,37 +648,47 @@ function droppedDuringAnimation() {
   return true;
 }
 
+function canAct() {
+  return !busy && !coord.reorganizing && !!current;
+}
+
 async function afterDecision(data) {
   // Out of files: another session may have left work behind, or files may
   // have been added. The coordinator looks once more and draws the result.
   if (data.done) await coord.reconcileIfDone();
-  else render(data);
+  else await render(data, { seamless: true });
 }
 
-async function decide(action) {
-  if (busy || coord.reorganizing || !current) return;
+// Runs one decision, keeping input locked until the next card is on screen.
+async function runDecision(animate, perform) {
+  if (!canAct()) return;
   busy = true;
   try {
-    await animateOut(action);
+    await animate();
     if (droppedDuringAnimation()) return;
-    const data = action === "accept" ? await sorter.accept() : await sorter.reject();
-    recordDecision();
-    await afterDecision(data);
+    await afterDecision(await perform());
+  } catch (e) {
+    console.error(e);
+    resetCardTransform();
+    toast("Action impossible, reessaie.");
   } finally {
     busy = false;
   }
 }
 
-async function doSkip() {
-  if (busy || coord.reorganizing || !current) return;
-  busy = true;
-  try {
-    await animateSkip();
-    if (droppedDuringAnimation()) return;
-    render(await sorter.skipNow());
-  } finally {
-    busy = false;
-  }
+function decide(action) {
+  return runDecision(
+    () => animateOut(action),
+    async () => {
+      const data = action === "accept" ? await sorter.accept() : await sorter.reject();
+      recordDecision();
+      return data;
+    },
+  );
+}
+
+function doSkip() {
+  return runDecision(animateSkip, () => sorter.skipNow());
 }
 
 async function doUndo() {
@@ -569,7 +704,6 @@ async function doUndo() {
 async function doRestartFolder() {
   if (busy || coord.reorganizing || !coord.isOpen) return;
   resetSpeedStats();
-  setChromeVisible(false);
   await coord.restart();
 }
 
@@ -579,7 +713,8 @@ async function doRestartFolder() {
 // watch, saves pending progress, and forgets the card on screen.
 async function leaveFolder() {
   current = null;
-  clearBlobCache();
+  pruneMedia();
+  renderBack(null);
   stopVideo();
   await coord.close();
 }
@@ -596,7 +731,7 @@ async function openFolder(folderId, name) {
     el("folder-path").textContent = folderName;
     el("folder-path").title = folderName;
     resetSpeedStats();
-    clearBlobCache();
+    pruneMedia();
     const first = await coord.open(folderId, folderName);
     if (!first) {
       // Superseded by leaving/opening something else; don't leave the
@@ -605,7 +740,6 @@ async function openFolder(folderId, name) {
       return;
     }
     showScreen("app");
-    setChromeVisible(false);
     render(first);
   } catch (e) {
     setHidden(el("folder-error"), false);
@@ -630,41 +764,111 @@ function handleFolderSubmit() {
 
 // ---------- keys & drag ----------
 
+const SWIPE_MIN = 70;
+const SWIPE_MAX = 130;
+const FLICK_SPEED = 0.55; // px per ms: a quick flick counts even over a short distance
+const TAP_SLOP = 6;
+const TAP_MAX_MS = 500;
+const MAX_TILT_DEG = 16;
+
+function swipeThreshold() {
+  return Math.max(SWIPE_MIN, Math.min(SWIPE_MAX, el("card").offsetWidth * 0.25));
+}
+
+// Mostly-upward movement is a skip; anything else is judged on its horizontal part.
+function isUpwardSwipe() {
+  return dy < 0 && -dy > Math.abs(dx) * 1.2;
+}
+
 function setupDrag() {
   const card = el("card");
+  const zone = el("card-zone");
+  let samples = []; // recent pointer positions, to measure the speed at release
+  let downAt = 0;
+  let moved = false;
+
+  function snapBack() {
+    card.classList.add("snap-back");
+    card.style.transform = "";
+    setBadges(0, 0, 0);
+    setDragProgress(0);
+  }
+
+  function speed() {
+    if (samples.length < 2) return { vx: 0, vy: 0 };
+    const first = samples[0];
+    const last = samples[samples.length - 1];
+    const dt = Math.max(last.t - first.t, 1);
+    return { vx: (last.x - first.x) / dt, vy: (last.y - first.y) / dt };
+  }
+
+  function releaseAction() {
+    const threshold = swipeThreshold();
+    const { vx, vy } = speed();
+    if (isUpwardSwipe()) {
+      return (-dy > threshold || (vy < -FLICK_SPEED && -dy > 40)) ? "skip" : null;
+    }
+    if (Math.abs(dx) > threshold || (Math.abs(vx) > FLICK_SPEED && Math.abs(dx) > 40)) {
+      return dx > 0 ? "accept" : "reject";
+    }
+    return null;
+  }
+
   card.addEventListener("pointerdown", (e) => {
-    if (busy || coord.reorganizing) return;
+    if (e.button > 0 || !canAct()) return;
     dragging = true;
+    moved = false;
     startX = e.clientX; startY = e.clientY;
     dx = 0; dy = 0;
+    samples = [{ x: e.clientX, y: e.clientY, t: e.timeStamp }];
+    downAt = e.timeStamp;
     card.classList.remove("snap-back");
     card.classList.add("dragging");
+    zone.classList.add("dragging");
     card.setPointerCapture(e.pointerId);
   });
+
   card.addEventListener("pointermove", (e) => {
     if (!dragging) return;
     dx = e.clientX - startX;
     dy = e.clientY - startY;
-    const rot = dx / 18;
-    card.style.transform = `translate(${dx}px, ${dy}px) rotate(${rot}deg)`;
-    const ratio = Math.min(Math.abs(dx) / SWIPE_THRESHOLD, 1);
-    if (dx > 0) { el("badge-like").style.opacity = ratio; el("badge-nope").style.opacity = 0; }
-    else if (dx < 0) { el("badge-nope").style.opacity = ratio; el("badge-like").style.opacity = 0; }
+    if (!moved) {
+      // A finger always wobbles a little: don't start moving the card for it.
+      if (Math.hypot(dx, dy) < TAP_SLOP) return;
+      moved = true;
+      document.body.classList.add("is-dragging");
+    }
+    samples.push({ x: e.clientX, y: e.clientY, t: e.timeStamp });
+    while (samples.length > 2 && e.timeStamp - samples[0].t > 100) samples.shift();
+
+    const tilt = Math.max(-MAX_TILT_DEG, Math.min(MAX_TILT_DEG, dx / 18));
+    card.style.transform = `translate(${dx}px, ${dy}px) rotate(${tilt}deg)`;
+
+    const threshold = swipeThreshold();
+    if (isUpwardSwipe()) setBadges(0, 0, Math.min(1, -dy / threshold));
+    else if (dx > 0) setBadges(Math.min(1, dx / threshold), 0, 0);
+    else setBadges(0, Math.min(1, -dx / threshold), 0);
+    setDragProgress(Math.min(1, Math.hypot(dx, dy) / (threshold * 1.8)));
   });
-  function endDrag() {
+
+  function endDrag(e) {
     if (!dragging) return;
     dragging = false;
+    document.body.classList.remove("is-dragging");
+    zone.classList.remove("dragging");
     card.classList.remove("dragging");
-    if (Math.abs(dx) > SWIPE_THRESHOLD && !busy) {
-      decide(dx > 0 ? "accept" : "reject");
-    } else {
-      card.classList.add("snap-back");
-      card.style.transform = "";
-      el("badge-like").style.opacity = 0;
-      el("badge-nope").style.opacity = 0;
-      // Barely moved -> a tap, not a swipe attempt. Reveal the mobile chrome.
-      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) revealChromeTemporarily();
+
+    const released = e.type === "pointerup";
+    if (!moved) {
+      // Barely moved and quickly let go: a tap, which toggles the phone overlay.
+      snapBack();
+      if (released && e.timeStamp - downAt < TAP_MAX_MS && isMobileLayout()) toggleChrome();
+      return;
     }
+    const action = released && canAct() ? releaseAction() : null;
+    if (action === "skip") doSkip();
+    else if (action) decide(action);
+    else snapBack();
   }
   card.addEventListener("pointerup", endDrag);
   card.addEventListener("pointercancel", endDrag);
@@ -712,6 +916,7 @@ function setupLifecycle() {
 
 async function init() {
   themeMode = loadTheme();
+  loadChrome();
   el("theme-toggle").addEventListener("click", cycleTheme);
   loadAudioPrefs();
   updateMuteIcon();
@@ -736,11 +941,10 @@ async function init() {
   el("btn-open-external").addEventListener("click", async () => {
     if (!current) return;
     try {
-      let url = liveObjectUrl;
-      if (!url) {
-        const blob = await getBlob(current.id);
-        url = URL.createObjectURL(blob);
-      }
+      // Straight from the cache when the file is already here: opening a tab
+      // after an await can be blocked as a popup on Safari.
+      const entry = mediaEntry(current.id);
+      const url = entry.url || (await entry.promise).url;
       window.open(url, "_blank", "noopener");
     } catch (e) {
       toast("Impossible d'ouvrir le fichier.");
@@ -799,7 +1003,7 @@ function afterSignIn() {
   if (recent) {
     setHidden(el("recent-wrap"), false);
     const btn = el("btn-recent");
-    btn.textContent = recent.name || recent.id;
+    btn.innerHTML = FOLDER_ICON + `<span class="name">${escapeHtml(recent.name || recent.id)}</span>`;
     btn.onclick = () => openFolder(recent.id, recent.name);
   }
   showScreen("folder");
@@ -826,7 +1030,7 @@ async function loadFolderList() {
       const item = document.createElement("button");
       item.type = "button";
       item.className = "folder-list-item";
-      item.innerHTML = `<span>${escapeHtml(f.name)}</span>` +
+      item.innerHTML = FOLDER_ICON + `<span class="name">${escapeHtml(f.name)}</span>` +
         (f.owner ? `<span class="owner">${escapeHtml(f.owner)}</span>` : "");
       item.addEventListener("click", () => openFolder(f.id, f.name));
       listEl.appendChild(item);
@@ -836,6 +1040,10 @@ async function loadFolderList() {
     statusEl.textContent = "Impossible de lister les dossiers (" + e.message + "). Utilise le lien direct ci-dessous.";
   }
 }
+
+const FOLDER_ICON =
+  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+  'stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>';
 
 function escapeHtml(s) {
   const div = document.createElement("div");
