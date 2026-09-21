@@ -482,9 +482,9 @@ function paintAmbient(canvas, source) {
     const image = smallCtx.getImageData(0, 0, small.width, small.height);
     const from = image.data;
     const to = new Uint8ClampedArray(from.length);
-    for (let pass = 0; pass < 3; pass++) {
-      blurPass(from, to, small.width, small.height, 4, true);
-      blurPass(to, from, small.width, small.height, 4, false);
+    for (let pass = 0; pass < 2; pass++) {
+      blurPass(from, to, small.width, small.height, 3, true);
+      blurPass(to, from, small.width, small.height, 3, false);
     }
     for (let i = 3; i < from.length; i += 4) from[i] = 255;
     smallCtx.putImageData(image, 0, 0);
