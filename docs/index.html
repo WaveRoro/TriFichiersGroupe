@@ -5,17 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Tri Photos & Videos</title>
-<link rel="stylesheet" href="style.css?v=082916b2">
+<link rel="stylesheet" href="style.css?v=1ee76d2b">
 <script type="importmap">
 {
   "imports": {
-    "./auth.js": "./auth.js?v=082916b2",
-    "./coordinator.js": "./coordinator.js?v=082916b2",
-    "./drive.js": "./drive.js?v=082916b2",
-    "./identity.js": "./identity.js?v=082916b2",
-    "./presence.js": "./presence.js?v=082916b2",
-    "./sorter.js": "./sorter.js?v=082916b2",
-    "./zoom.js": "./zoom.js?v=082916b2"
+    "./auth.js": "./auth.js?v=1ee76d2b",
+    "./coordinator.js": "./coordinator.js?v=1ee76d2b",
+    "./drive.js": "./drive.js?v=1ee76d2b",
+    "./identity.js": "./identity.js?v=1ee76d2b",
+    "./presence.js": "./presence.js?v=1ee76d2b",
+    "./sorter.js": "./sorter.js?v=1ee76d2b",
+    "./zoom.js": "./zoom.js?v=1ee76d2b"
   }
 }
 </script>
@@ -40,7 +40,7 @@
     <p class="lead">Trie a plusieurs les photos et videos stockees sur Google Drive.</p>
     <button id="btn-signin" class="btn btn-primary btn-big">Se connecter avec Google</button>
     <p id="signin-error" class="hint is-error" hidden></p>
-    <p class="app-version-line">version <span class="app-version">082916b2</span></p>
+    <p class="app-version-line">version <span class="app-version">1ee76d2b</span></p>
   </div>
 </div>
 
@@ -60,7 +60,7 @@
     </details>
     <p id="folder-error" class="hint is-error" hidden></p>
     <button id="btn-signout" class="btn-link subtle">Se deconnecter</button>
-    <p class="app-version-line">version <span class="app-version">082916b2</span></p>
+    <p class="app-version-line">version <span class="app-version">1ee76d2b</span></p>
   </div>
 </div>
 
@@ -86,6 +86,7 @@
         </div>
         <div id="stat-speed" class="stat-speed" hidden></div>
         <div id="stat-people" class="stat-people" hidden></div>
+        <div id="stat-failed" class="stat-failed" hidden></div>
         <div id="filter-bar" class="filter-bar" hidden></div>
       </div>
     </div>
@@ -105,10 +106,6 @@
           <img id="back-img" class="media" alt="" hidden draggable="false" decoding="async">
           <video id="back-video" class="media" hidden muted playsinline preload="auto"></video>
           <div id="back-placeholder" class="back-placeholder" hidden></div>
-        </div>
-        <div class="card-footer">
-          <div id="back-name" class="file-name"></div>
-          <div id="back-meta" class="file-meta"></div>
         </div>
       </div>
 
@@ -155,10 +152,6 @@
           </div>
         </div>
 
-        <div id="card-footer" class="card-footer">
-          <div id="file-name" class="file-name"></div>
-          <div id="file-meta" class="file-meta"></div>
-        </div>
       </div>
 
       <div id="side-actions" class="side-actions">
@@ -240,6 +233,6 @@
     }
   });
 </script>
-<script type="module" src="app.js?v=082916b2"></script>
+<script type="module" src="app.js?v=1ee76d2b"></script>
 </body>
 </html>

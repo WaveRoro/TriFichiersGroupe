@@ -373,6 +373,59 @@ test("a move that fails is reported and the file stays available", async () => {
   assert.ok(s.queue.some((f) => f.id === target), "failed reject puts the file back in play");
 });
 
+test("a failed move stays visible in the status until the file is dealt with", async () => {
+  const store = new FakeStore();
+  store.addMany(3);
+  const s = await open(store);
+  s.onError = () => {};
+  const first = (await s.current()).id;
+  store.failNext("moveFile", 1, Object.assign(new Error("Drive API 403: no"), { status: 403 }));
+  await s.reject();
+  await s._settlePendingMoves();
+  assert.equal((await s.current()).failedMoves, 1);
+  // the same file offered again later and moved this time: nothing left to report
+  await s.refresh();
+  s.setPresence("owner", ["owner"]);
+  assert.ok(s.queue.some((f) => f.id === first), "the file that could not be moved is offered again");
+  for (let i = 0; i < 5 && (await s.current()).id !== first; i++) await s.skipNow();
+  assert.equal((await s.current()).id, first);
+  await s.reject();
+  await s._settlePendingMoves();
+  assert.equal((await s.current()).failedMoves, 0);
+  assert.equal(store.files.get(first).parents.includes("root"), false, "the file really is out of the folder");
+});
+
+test("the error names the reason, not just 'failed'", async () => {
+  const store = new FakeStore();
+  store.addMany(2);
+  const s = await open(store);
+  const errors = [];
+  s.onError = (m) => errors.push(m);
+  store.failNext("moveFile", 1, Object.assign(new Error("Drive API 403: no"), { status: 403 }));
+  await s.reject();
+  await s._settlePendingMoves();
+  assert.match(errors[0], /droits insuffisants/);
+});
+
+test("a reply that doesn't put the file in the trash folder is not counted as a move", async () => {
+  const store = new FakeStore();
+  store.addMany(2);
+  const drive = store.client("owner");
+  // a Drive that answers "ok" without having moved anything
+  drive.moveFile = async (id, from) => ({ id, parents: [from] });
+  const s = new DriveSorter(drive, { saveDebounceMs: 10, deviceId: "owner" });
+  await s.loadFolder("root", "root");
+  const errors = [];
+  s.onError = (m) => errors.push(m);
+  const target = (await s.current()).id;
+  await s.reject();
+  await s._settlePendingMoves();
+  assert.equal(errors.length, 1);
+  assert.equal(s.trashedCount, 0);
+  assert.equal((await s.current()).failedMoves, 1);
+  assert.ok(store.files.get(target).parents.includes("root"), "the file never left its folder");
+});
+
 test("rejecting a file someone else already trashed is not an error", async () => {
   const store = new FakeStore();
   store.strictMove = true;

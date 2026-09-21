@@ -358,6 +358,13 @@ button, input { font: inherit; color: inherit; }
   background: var(--accent-green);
 }
 
+.stat-failed {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-red);
+}
+
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
@@ -648,31 +655,6 @@ button, input { font: inherit; color: inherit; }
   letter-spacing: 0.14em;
 }
 .other-ext { font-size: 15px; font-weight: 600; }
-
-.card-footer {
-  flex: 0 0 auto;
-  height: 56px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 0 20px;
-  background: var(--panel);
-}
-.file-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-  font-weight: 600;
-}
-.file-meta {
-  flex: 0 0 auto;
-  font-size: 13px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
 
 /* ---------- Floating controls on top of the media ---------- */
 
@@ -1103,6 +1085,7 @@ kbd {
   .folder-line .btn-link { color: rgba(255, 255, 255, 0.7); }
   .stats, .stat-speed { display: none; }
   .stat-people { color: rgba(255, 255, 255, 0.8); }
+  .stat-failed { color: #ff8a98; }
   .filter-pill {
     border-color: rgba(255, 255, 255, 0.28);
     color: rgba(255, 255, 255, 0.85);
@@ -1135,26 +1118,7 @@ kbd {
     backdrop-filter: none;
   }
 
-  /* ----- bottom: file name + action buttons ----- */
-
-  .card-footer {
-    position: absolute;
-    left: 0; right: 0; bottom: 0;
-    z-index: 5;
-    height: auto;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-    padding: 72px 20px calc(var(--safe-bottom) + 112px);
-    background: linear-gradient(to top,
-      rgba(0, 0, 0, 0.62) 0%, rgba(0, 0, 0, 0.42) 30%, rgba(0, 0, 0, 0.2) 60%,
-      rgba(0, 0, 0, 0.06) 85%, rgba(0, 0, 0, 0) 100%);
-    pointer-events: none;
-    will-change: opacity;
-    transition: opacity 0.25s ease;
-  }
-  .file-name { max-width: 100%; color: #fff; font-size: 15px; }
-  .file-meta { color: rgba(255, 255, 255, 0.72); }
+  /* ----- bottom: action buttons ----- */
 
   .controls {
     position: fixed;
@@ -1211,7 +1175,6 @@ kbd {
     visibility: hidden;
     transition: opacity 0.2s ease, visibility 0s 0.2s;
   }
-  .chrome-hidden .card-footer { opacity: 0; }
   .chrome-hidden .controls {
     opacity: 0;
     visibility: hidden;

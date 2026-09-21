@@ -73,7 +73,7 @@ function showScreen(name) {
   document.body.dataset.screen = name;
 }
 
-function toast(msg) {
+function toast(msg, ms = 3500) {
   const t = el("toast");
   t.textContent = msg;
   setHidden(t, false);
@@ -82,7 +82,7 @@ function toast(msg) {
   void t.offsetWidth;
   t.style.animation = "";
   clearTimeout(toast._timer);
-  toast._timer = setTimeout(() => setHidden(t, true), 3500);
+  toast._timer = setTimeout(() => setHidden(t, true), ms);
 }
 
 // ---------- theme ----------
@@ -281,7 +281,13 @@ async function toggleFilter(kind, currentActive) {
 
 const drive = new DriveApi(getToken, { invalidateToken });
 const sorter = new DriveSorter(drive, { deviceId: getDeviceId() });
-sorter.onError = (msg) => toast(msg);
+// Errors stay longer than a confirmation: they say something did not happen.
+// The counters are redrawn too: a move that failed was already counted, and
+// the "could not be moved" notice comes from the same numbers.
+sorter.onError = (msg) => {
+  toast(msg, 8000);
+  sorter.current().then((data) => { if (screens.app && !screens.app.hasAttribute("hidden")) fmtCounts(data); }).catch(() => {});
+};
 const presence = new Presence(drive, { sessionId: getSessionId() });
 
 function setControlsDisabled(disabled) {
@@ -341,6 +347,15 @@ function fmtCounts(data) {
   el("btn-undo").disabled = !data.canUndo || coord.reorganizing;
   updateSpeedStats(data.remaining || 0);
   renderFilterBar(data);
+  const failedEl = el("stat-failed");
+  if (data.failedMoves > 0) {
+    failedEl.textContent = data.failedMoves === 1
+      ? "1 fichier n'a pas pu etre deplace"
+      : `${data.failedMoves} fichiers n'ont pas pu etre deplaces`;
+    setHidden(failedEl, false);
+  } else {
+    setHidden(failedEl, true);
+  }
   const peopleEl = el("stat-people");
   if (data.peopleCount > 1) {
     peopleEl.textContent = `${data.peopleCount} personnes trient ce dossier en ce moment`;
@@ -563,8 +578,6 @@ function renderBack(next) {
   if (backId === next.id) return;
   backId = next.id;
   clearBack();
-  el("back-name").textContent = next.name;
-  el("back-meta").textContent = `${next.sizeH} - ${next.ext || "sans extension"}`;
 
   if (next.kind !== "image" && next.kind !== "video") {
     const placeholder = el("back-placeholder");
@@ -749,9 +762,6 @@ function render(data, { seamless = false } = {}) {
   current = data;
   fmtCounts(data);
   if (!seamless) resetCardTransform({ pop: true });
-
-  el("file-name").textContent = data.name;
-  el("file-meta").textContent = `${data.sizeH} - ${data.ext || "sans extension"}`;
 
   resetZoom();
   const ready = showMedia(data, seq);

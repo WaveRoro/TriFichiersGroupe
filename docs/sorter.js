@@ -130,6 +130,13 @@ export function humanSize(n) {
   return `${size.toFixed(1)} To`;
 }
 
+// The reason a move failed, in words a person can act on.
+function describeMoveError(error) {
+  if (error && error.status === 403) return "droits insuffisants sur ce fichier";
+  if (error && error.status === 404) return "fichier introuvable";
+  return (error && error.message) || "erreur inconnue";
+}
+
 export class DriveSorter {
   // deviceId names this device's own progress file (see identity.js).
   constructor(drive, { saveDebounceMs = SAVE_DEBOUNCE_MS, deviceId = "device" } = {}) {
@@ -168,6 +175,9 @@ export class DriveSorter {
     // listing has caught up with the move.
     this._rejectedIds = new Set();
     this._pendingMoves = new Set();
+    // Files whose move to trash failed and were not dealt with afterwards:
+    // the person must be able to see that something did not go through.
+    this._failedIds = new Set();
     this._saveDirty = false;
     this._saveTimer = null;
     this._saveChain = Promise.resolve();
@@ -511,6 +521,7 @@ export class DriveSorter {
       availableKinds: this._availableKinds(),
       activeFilters: Array.from(this.activeFilters),
       peopleCount: this.activeSessions.length,
+      failedMoves: this._failedIds.size,
     };
   }
 
@@ -552,6 +563,7 @@ export class DriveSorter {
   async accept() {
     if (!this.rootId || this.index >= this.queue.length) return this.current();
     const f = this.queue[this.index];
+    this._failedIds.delete(f.id);
     const key = this._keptKey(f);
     this._myKept.add(key);
     this._recountKept();
@@ -609,7 +621,12 @@ export class DriveSorter {
     const trashId = await this._getOrCreateTrashFolder(f.parentId);
     const finalName = await this._uniqueNameIn(trashId, f.name);
     if (finalName !== f.name) await this.drive.renameFile(f.id, finalName);
-    await this.drive.moveFile(f.id, f.parentId, trashId);
+    const moved = await this.drive.moveFile(f.id, f.parentId, trashId);
+    // Trust Drive's answer about where the file is now, not just the absence
+    // of an error: a reply that doesn't list the trash folder is not a move.
+    if (moved && Array.isArray(moved.parents) && !moved.parents.includes(trashId)) {
+      throw new Error("Drive n'a pas confirme le deplacement");
+    }
     action.toParentId = trashId;
     action.finalName = finalName;
   }
@@ -632,7 +649,8 @@ export class DriveSorter {
     }
     action.failed = true;
     this._rejectedIds.delete(f.id);
-    this.onError?.(`Impossible de deplacer "${f.name}" : ${error.message}`);
+    this._failedIds.add(f.id);
+    this.onError?.(`Un fichier n'a pas pu etre mis dans _trash (${describeMoveError(error)}). Il reste dans le dossier.`);
   }
 
   // Advances to the next card immediately and moves the file in the
@@ -643,6 +661,7 @@ export class DriveSorter {
   async reject() {
     if (!this.rootId || this.index >= this.queue.length) return this.current();
     const f = this.queue[this.index];
+    this._failedIds.delete(f.id); // trying again: judged by this attempt
     const action = { type: "reject", rel: f.rel, fileId: f.id, fromParentId: f.parentId, originalName: f.name };
     this._rejectedIds.add(f.id);
     const pending = this._moveToTrash(f, action).catch((e) => this._handleMoveFailure(f, action, e));
