@@ -163,14 +163,12 @@ button, input { font: inherit; color: inherit; }
 .btn:active { transform: scale(0.98); }
 
 .btn-primary { background: var(--accent-blue); color: #fff; }
-.btn-primary:hover { filter: brightness(1.08); }
 
 .btn-secondary {
   background: transparent;
   color: var(--text);
   border: 1px solid var(--border);
 }
-.btn-secondary:hover { border-color: var(--accent-blue); }
 
 .btn-big { display: block; width: 100%; margin-top: 10px; }
 
@@ -182,7 +180,6 @@ button, input { font: inherit; color: inherit; }
   font-size: 13px;
   cursor: pointer;
 }
-.btn-link:hover { text-decoration: underline; }
 .btn-link.subtle {
   margin-top: 22px;
   color: var(--muted);
@@ -224,7 +221,6 @@ button, input { font: inherit; color: inherit; }
   cursor: pointer;
   transition: border-color 0.15s ease, transform 0.1s ease;
 }
-.folder-list-item:hover { border-color: var(--accent-blue); }
 .folder-list-item:active { transform: scale(0.99); }
 .folder-list-item > svg { flex: 0 0 auto; color: var(--muted); }
 .folder-list-item .name {
@@ -260,7 +256,6 @@ button, input { font: inherit; color: inherit; }
   cursor: pointer;
 }
 .folder-fallback summary::-webkit-details-marker { display: none; }
-.folder-fallback summary:hover { color: var(--text); }
 
 .folder-input {
   width: 100%;
@@ -292,7 +287,6 @@ button, input { font: inherit; color: inherit; }
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
-.theme-toggle:hover { background: var(--panel); color: var(--text); }
 .theme-toggle:active { transform: scale(0.92); }
 
 /* ==========================================================================
@@ -329,7 +323,6 @@ button, input { font: inherit; color: inherit; }
   letter-spacing: -0.01em;
 }
 .folder-line .btn-link { color: var(--muted); }
-.folder-line .btn-link:hover { color: var(--accent-blue); text-decoration: none; }
 
 .stats, .stat-speed {
   margin-top: 4px;
@@ -354,12 +347,6 @@ button, input { font: inherit; color: inherit; }
   height: 7px;
   border-radius: 50%;
   background: var(--accent-green);
-  box-shadow: 0 0 0 0 rgba(22, 163, 95, 0.5);
-  animation: presence 2.4s ease-out infinite;
-}
-@keyframes presence {
-  0% { box-shadow: 0 0 0 0 rgba(22, 163, 95, 0.45); }
-  70%, 100% { box-shadow: 0 0 0 7px rgba(22, 163, 95, 0); }
 }
 
 .filter-bar {
@@ -379,7 +366,6 @@ button, input { font: inherit; color: inherit; }
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
-.filter-pill:hover { color: var(--text); }
 .filter-pill.active {
   border-color: transparent;
   background: var(--accent-soft);
@@ -400,11 +386,13 @@ button, input { font: inherit; color: inherit; }
   overflow: hidden;
 }
 .progress-fill {
-  width: 0%;
+  width: 100%;
   height: 100%;
   border-radius: 2px;
   background: var(--accent-blue);
-  transition: width 0.4s var(--ease);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.4s var(--ease);
 }
 .progress-percent {
   flex: 0 0 auto;
@@ -429,7 +417,6 @@ button, input { font: inherit; color: inherit; }
 }
 
 .card-zone {
-  --p: 0; /* 0..1: how far the top card has been dragged away */
   position: relative;
   width: min(760px, 100%);
   height: 100%;
@@ -468,6 +455,7 @@ button, input { font: inherit; color: inherit; }
 /* The next file, waiting underneath. It grows and brightens as the top card
    leaves, so the swipe reveals it instead of an empty background. */
 .card-back {
+  --p: 0; /* 0..1: how far the top card has been dragged away */
   position: absolute;
   inset: 0;
   z-index: 0;
@@ -497,6 +485,7 @@ button, input { font: inherit; color: inherit; }
   justify-content: center;
   opacity: 0;
   pointer-events: none;
+  will-change: opacity;
   transition: opacity 0.15s ease;
 }
 .card.dragging .badge,
@@ -647,7 +636,6 @@ button, input { font: inherit; color: inherit; }
   backdrop-filter: blur(12px);
   transition: background-color 0.15s ease, transform 0.1s ease;
 }
-.glass-btn:hover { background: rgba(18, 20, 26, 0.65); }
 .glass-btn:active { transform: scale(0.92); }
 
 .side-actions {
@@ -672,7 +660,7 @@ button, input { font: inherit; color: inherit; }
   align-items: center;
   gap: 8px;
   touch-action: auto;
-  transition: opacity 0.3s ease, bottom 0.3s var(--ease);
+  transition: opacity 0.3s ease, transform 0.3s var(--ease);
 }
 .video-controls.controls-faded { opacity: 0; pointer-events: none; }
 
@@ -692,7 +680,6 @@ button, input { font: inherit; color: inherit; }
   backdrop-filter: blur(12px);
   transition: background-color 0.15s ease, transform 0.1s ease;
 }
-.btn-mute:hover { background: rgba(18, 20, 26, 0.65); }
 .btn-mute:active { transform: scale(0.92); }
 
 .video-progress-ring {
@@ -783,12 +770,17 @@ body.is-dragging .video-controls { opacity: 0; pointer-events: none; }
   color: var(--muted);
   box-shadow: 0 1px 2px var(--shadow-color);
   cursor: pointer;
-  transition: transform 0.12s var(--ease), background-color 0.15s ease, color 0.15s ease,
-    border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.12s var(--ease), background-color 0.35s ease-out, color 0.35s ease-out,
+    border-color 0.35s ease-out;
 }
 .circle-btn svg { width: 19px; height: 19px; }
-.circle-btn:hover:not(:disabled) { color: var(--text); border-color: var(--muted); }
-.circle-btn:active:not(:disabled) { transform: scale(0.92); }
+.circle-btn:active:not(:disabled) {
+  transform: scale(0.92);
+  transition-duration: 0.08s;
+}
+/* Pressed = filled with the button's colour; it fades away once released. */
+.circle-btn.reject:active:not(:disabled) { background: var(--accent-red); border-color: transparent; color: #fff; }
+.circle-btn.accept:active:not(:disabled) { background: var(--accent-green); border-color: transparent; color: #fff; }
 .circle-btn:disabled { opacity: 0.35; cursor: default; }
 
 .circle-btn.lg {
@@ -800,8 +792,6 @@ body.is-dragging .video-controls { opacity: 0; pointer-events: none; }
 
 .circle-btn.reject { color: var(--accent-red); }
 .circle-btn.accept { color: var(--accent-green); }
-.circle-btn.reject:hover:not(:disabled) { background: var(--accent-red); border-color: transparent; color: #fff; }
-.circle-btn.accept:hover:not(:disabled) { background: var(--accent-green); border-color: transparent; color: #fff; }
 
 .keys-hint {
   display: flex;
@@ -888,7 +878,6 @@ kbd {
   cursor: pointer;
   transition: filter 0.15s ease, transform 0.1s ease;
 }
-.newfiles-refresh:hover { filter: brightness(1.1); }
 .newfiles-refresh:active { transform: scale(0.96); }
 .newfiles-dismiss {
   flex: 0 0 auto;
@@ -902,7 +891,6 @@ kbd {
   line-height: 1;
   cursor: pointer;
 }
-.newfiles-dismiss:hover { background: var(--bg); color: var(--text); }
 
 /* New-files notice: floats over the top of the photo (not the header, which
    it would hide), and clears the phone header when that is showing. */
@@ -950,10 +938,36 @@ kbd {
   transform: translateX(-50%);
 }
 
+/* Hover styles only where there is a real hovering pointer: on a touch
+   screen :hover sticks after a tap until the next touch elsewhere, which
+   left a pressed button coloured. */
+@media (hover: hover) {
+  .btn-primary:hover { filter: brightness(1.08); }
+  .btn-secondary:hover { border-color: var(--accent-blue); }
+  .btn-link:hover { text-decoration: underline; }
+  .folder-list-item:hover { border-color: var(--accent-blue); }
+  .folder-fallback summary:hover { color: var(--text); }
+  .theme-toggle:hover { background: var(--panel); color: var(--text); }
+  .folder-line .btn-link:hover { color: var(--accent-blue); text-decoration: none; }
+  .filter-pill:hover { color: var(--text); }
+  .glass-btn:hover { background: rgba(18, 20, 26, 0.65); }
+  .btn-mute:hover { background: rgba(18, 20, 26, 0.65); }
+  .circle-btn:hover:not(:disabled) { color: var(--text); border-color: var(--muted); }
+  .circle-btn.reject:hover:not(:disabled) { background: var(--accent-red); border-color: transparent; color: #fff; }
+  .circle-btn.accept:hover:not(:disabled) { background: var(--accent-green); border-color: transparent; color: #fff; }
+  .newfiles-refresh:hover { filter: brightness(1.1); }
+  .newfiles-dismiss:hover { background: var(--bg); color: var(--text); }
+}
+
 /* ==========================================================================
    Phones: the media fills the screen, everything else floats over it.
    Tapping the photo toggles the overlay (.chrome-hidden on #app-screen);
    when hidden, only a thin progress bar remains.
+
+   Everything that moves here is a transform or an opacity, which the phone's
+   GPU animates without recomputing the layout, and there is deliberately no
+   backdrop blur: blurring a full-screen photo that is being dragged is what
+   made swipes stutter. The soft edges are plain gradients instead.
    ========================================================================== */
 
 @media (max-width: 640px) {
@@ -990,8 +1004,11 @@ kbd {
 
   /* ----- top: folder info + progress ----- */
 
-  /* Bars only catch touches on their buttons, so a swipe can start anywhere. */
+  /* Bars only catch touches on their buttons, so a swipe can start anywhere.
+     --detail-h (set from script) is the height of the folder info, which the
+     progress bar climbs by when that info is hidden. */
   .topbar {
+    --detail-h: 0px;
     position: fixed;
     top: 0; left: 0; right: 0;
     z-index: 20;
@@ -1003,27 +1020,21 @@ kbd {
   }
   .topbar button { pointer-events: auto; }
 
-  /* The blur itself has to fade out, not just its tint, or a seam shows where
-     it stops: it lives on a taller pseudo-element masked with a gradient. */
   .topbar::before {
     content: "";
     position: absolute;
-    inset: 0 0 -56px 0;
+    inset: 0 0 -48px 0;
     z-index: -1;
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0.2) 45%, transparent 80%);
-    -webkit-backdrop-filter: blur(14px);
-    backdrop-filter: blur(14px);
-    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 45%, transparent 85%);
-    mask-image: linear-gradient(to bottom, #000 0%, #000 45%, transparent 85%);
+    background: linear-gradient(to bottom,
+      rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.44) 25%, rgba(0, 0, 0, 0.26) 50%,
+      rgba(0, 0, 0, 0.1) 75%, rgba(0, 0, 0, 0) 100%);
     transition: opacity 0.3s ease;
   }
 
   .topbar-detail {
-    display: grid;
-    grid-template-rows: 1fr;
-    transition: grid-template-rows 0.32s var(--ease), opacity 0.25s ease;
+    will-change: opacity, transform;
+    transition: opacity 0.25s ease, transform 0.3s var(--ease);
   }
-  .topbar-inner { min-height: 0; overflow: hidden; }
   .topbar-inner::after { content: ""; display: block; height: 12px; }
 
   .folder-line { padding-right: 46px; }
@@ -1041,10 +1052,14 @@ kbd {
     color: #111;
   }
 
-  .progress-row { margin-top: 0; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35)); }
+  .progress-row {
+    margin-top: 0;
+    will-change: transform;
+    transition: transform 0.32s var(--ease);
+  }
   .progress-bar { background: rgba(255, 255, 255, 0.3); }
   .progress-fill { background: #fff; }
-  .progress-percent { color: rgba(255, 255, 255, 0.92); }
+  .progress-percent { color: rgba(255, 255, 255, 0.92); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45); }
 
   .side-actions {
     position: fixed;
@@ -1052,6 +1067,11 @@ kbd {
     right: 12px;
     z-index: 25;
     transition: opacity 0.25s ease, visibility 0s;
+  }
+  .glass-btn, .btn-mute {
+    background: rgba(18, 20, 26, 0.55);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 
   /* ----- bottom: file name + action buttons ----- */
@@ -1065,8 +1085,11 @@ kbd {
     align-items: flex-start;
     gap: 2px;
     padding: 72px 20px calc(var(--safe-bottom) + 112px);
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.28) 55%, transparent 100%);
+    background: linear-gradient(to top,
+      rgba(0, 0, 0, 0.62) 0%, rgba(0, 0, 0, 0.42) 30%, rgba(0, 0, 0, 0.2) 60%,
+      rgba(0, 0, 0, 0.06) 85%, rgba(0, 0, 0, 0) 100%);
     pointer-events: none;
+    will-change: opacity;
     transition: opacity 0.25s ease;
   }
   .file-name { max-width: 100%; color: #fff; font-size: 15px; }
@@ -1079,28 +1102,24 @@ kbd {
     gap: 16px;
     padding: 18px 20px calc(var(--safe-bottom) + 18px);
     pointer-events: none;
+    will-change: opacity, transform;
     transition: opacity 0.3s ease, transform 0.32s var(--ease);
   }
   .controls > * { pointer-events: auto; }
-  /* Same fading blur as the top bar, mirrored. */
   .controls::before {
     content: "";
     position: absolute;
-    inset: -56px 0 0 0;
+    inset: -48px 0 0 0;
     z-index: -1;
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0.2) 45%, transparent 80%);
-    -webkit-backdrop-filter: blur(14px);
-    backdrop-filter: blur(14px);
-    -webkit-mask-image: linear-gradient(to top, #000 0%, #000 45%, transparent 85%);
-    mask-image: linear-gradient(to top, #000 0%, #000 45%, transparent 85%);
+    background: linear-gradient(to top,
+      rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.44) 25%, rgba(0, 0, 0, 0.26) 50%,
+      rgba(0, 0, 0, 0.1) 75%, rgba(0, 0, 0, 0) 100%);
   }
   .circle-btn {
     border-color: var(--glass-border);
-    background: var(--glass);
+    background: rgba(24, 26, 32, 0.55);
     color: rgba(255, 255, 255, 0.92);
     box-shadow: none;
-    -webkit-backdrop-filter: blur(14px);
-    backdrop-filter: blur(14px);
   }
   .circle-btn.reject { color: #ff7b8c; }
   .circle-btn.accept { color: #4fe0a0; }
@@ -1113,18 +1132,19 @@ kbd {
     right: 16px;
     bottom: calc(var(--safe-bottom) + 24px);
   }
-  #app-screen:not(.chrome-hidden) .video-controls { bottom: calc(var(--safe-bottom) + 122px); }
+  #app-screen:not(.chrome-hidden) .video-controls { transform: translateY(-98px); }
   .video-controls.controls-faded { opacity: 1; pointer-events: auto; }
 
   /* ----- overlay hidden ----- */
 
-  .chrome-hidden .topbar::before { opacity: 0; }
+  .chrome-hidden .topbar::before { opacity: 0.35; }
   .chrome-hidden .topbar-detail {
-    grid-template-rows: 0fr;
     opacity: 0;
+    transform: translateY(-8px);
     visibility: hidden;
-    transition: grid-template-rows 0.32s var(--ease), opacity 0.2s ease, visibility 0s 0.32s;
+    transition: opacity 0.2s ease, transform 0.3s var(--ease), visibility 0s 0.3s;
   }
+  .chrome-hidden .progress-row { transform: translateY(calc(-1 * var(--detail-h))); }
   .chrome-hidden .side-actions {
     opacity: 0;
     visibility: hidden;

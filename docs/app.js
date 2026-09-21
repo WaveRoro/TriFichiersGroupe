@@ -44,6 +44,15 @@ function loadChrome() {
   applyChrome();
 }
 
+// The phone layout slides the progress bar up by the height of the folder
+// info when that is hidden, so it needs that height as a plain number.
+function trackDetailHeight() {
+  if (!("ResizeObserver" in window)) return;
+  const bar = document.querySelector(".topbar");
+  const inner = document.querySelector(".topbar-inner");
+  new ResizeObserver(() => bar.style.setProperty("--detail-h", inner.offsetHeight + "px")).observe(inner);
+}
+
 function toggleChrome() {
   chromeVisible = !chromeVisible;
   try { localStorage.setItem(CHROME_KEY, String(chromeVisible)); } catch (e) {}
@@ -215,12 +224,19 @@ function updateSpeedStats(remaining) {
 const KIND_ORDER = ["image", "video", "audio", "pdf", "text", "other"];
 const KIND_LABELS = { image: "Images", video: "Videos", audio: "Audio", pdf: "PDF", text: "Texte", other: "Autres" };
 
+let filterBarSignature = "";
+
 function renderFilterBar(data) {
   const bar = el("filter-bar");
   const availSet = new Set(data.availableKinds || []);
   const avail = KIND_ORDER.filter((k) => availSet.has(k));
-  if (avail.length < 2) { setHidden(bar, true); bar.innerHTML = ""; return; }
   const active = new Set(data.activeFilters || []);
+  // Runs after every swipe: rebuilding identical buttons would cost a layout
+  // pass right when the next card appears.
+  const signature = avail.length < 2 ? "" : avail.map((k) => k + (active.has(k) ? "+" : "-")).join(",");
+  if (signature === filterBarSignature) return;
+  filterBarSignature = signature;
+  if (avail.length < 2) { setHidden(bar, true); bar.innerHTML = ""; return; }
   setHidden(bar, false);
   bar.innerHTML = "";
   for (const kind of avail) {
@@ -301,7 +317,7 @@ function fmtCounts(data) {
   const total = data.total || 1;
   const done = Math.max(total - (data.remaining || 0), 0);
   const percent = Math.min(100, Math.round((done / total) * 100));
-  el("progress-fill").style.width = percent + "%";
+  el("progress-fill").style.transform = `scaleX(${percent / 100})`;
   el("progress-percent").textContent = percent + "%";
   el("btn-undo").disabled = !data.canUndo || coord.reorganizing;
   updateSpeedStats(data.remaining || 0);
@@ -397,6 +413,7 @@ function stopVideo() {
 // name) instead of an empty background - and so that when it becomes the
 // current card nothing changes on screen.
 let backId = null;
+let backTimer = null;
 
 function clearBack() {
   const img = el("back-img");
@@ -451,7 +468,7 @@ function setBadges(like, nope, skip) {
 // 0 = card at rest, 1 = card gone. Drives how far the card underneath has
 // grown (see .card-back in the stylesheet).
 function setDragProgress(p) {
-  el("card-zone").style.setProperty("--p", String(p));
+  el("card-back").style.setProperty("--p", String(p));
 }
 
 function resetCardTransform({ pop = false } = {}) {
@@ -574,6 +591,7 @@ function render(data, { seamless = false } = {}) {
     el("done-summary").textContent = `${kept} fichier(s) garde(s), ${trashed} envoye(s) a la poubelle.`;
     stopVideo();
     current = null;
+    clearTimeout(backTimer);
     renderBack(null);
     pruneMedia();
     return Promise.resolve();
@@ -608,7 +626,11 @@ function preload() {
     mediaEntry(item.id).promise.catch(() => {}).then(runNext);
   };
   for (let k = 0; k < PRELOAD_CONCURRENCY; k++) runNext();
-  renderBack(upcoming[0] || null);
+  // Filling in the card underneath decodes another big image; do it just
+  // after the new card has appeared rather than in the same frame.
+  const next = upcoming[0] || null;
+  clearTimeout(backTimer);
+  backTimer = setTimeout(() => renderBack(next), 80);
 }
 
 // ---------- actions ----------
@@ -714,6 +736,7 @@ async function doRestartFolder() {
 async function leaveFolder() {
   current = null;
   pruneMedia();
+  clearTimeout(backTimer);
   renderBack(null);
   stopVideo();
   await coord.close();
@@ -771,10 +794,6 @@ const TAP_SLOP = 6;
 const TAP_MAX_MS = 500;
 const MAX_TILT_DEG = 16;
 
-function swipeThreshold() {
-  return Math.max(SWIPE_MIN, Math.min(SWIPE_MAX, el("card").offsetWidth * 0.25));
-}
-
 // Mostly-upward movement is a skip; anything else is judged on its horizontal part.
 function isUpwardSwipe() {
   return dy < 0 && -dy > Math.abs(dx) * 1.2;
@@ -786,6 +805,38 @@ function setupDrag() {
   let samples = []; // recent pointer positions, to measure the speed at release
   let downAt = 0;
   let moved = false;
+  let threshold = SWIPE_MAX; // measured once per gesture: reading sizes while moving forces a layout every frame
+  let frame = 0;
+  let shown = { like: -1, nope: -1, skip: -1 };
+
+  function badgeLevels() {
+    if (isUpwardSwipe()) return { like: 0, nope: 0, skip: Math.min(1, -dy / threshold) };
+    if (dx > 0) return { like: Math.min(1, dx / threshold), nope: 0, skip: 0 };
+    return { like: 0, nope: Math.min(1, -dx / threshold), skip: 0 };
+  }
+
+  // Pointer events can arrive faster than the screen refreshes: they only
+  // record the position, and the card is drawn at most once per frame.
+  function paint() {
+    frame = 0;
+    if (!dragging) return;
+    const tilt = Math.max(-MAX_TILT_DEG, Math.min(MAX_TILT_DEG, dx / 18));
+    card.style.transform = `translate3d(${dx}px, ${dy}px, 0) rotate(${tilt}deg)`;
+    const levels = badgeLevels();
+    for (const key of ["like", "nope", "skip"]) {
+      // Only touch a badge whose opacity actually changes.
+      if (Math.abs(levels[key] - shown[key]) < 0.02 && !(levels[key] === 0 && shown[key] !== 0)) continue;
+      shown[key] = levels[key];
+      el("badge-" + key).style.opacity = levels[key];
+    }
+    setDragProgress(Math.min(1, Math.hypot(dx, dy) / (threshold * 1.8)));
+  }
+
+  function stopPainting() {
+    if (frame) cancelAnimationFrame(frame);
+    frame = 0;
+    shown = { like: -1, nope: -1, skip: -1 };
+  }
 
   function snapBack() {
     card.classList.add("snap-back");
@@ -803,7 +854,6 @@ function setupDrag() {
   }
 
   function releaseAction() {
-    const threshold = swipeThreshold();
     const { vx, vy } = speed();
     if (isUpwardSwipe()) {
       return (-dy > threshold || (vy < -FLICK_SPEED && -dy > 40)) ? "skip" : null;
@@ -820,8 +870,10 @@ function setupDrag() {
     moved = false;
     startX = e.clientX; startY = e.clientY;
     dx = 0; dy = 0;
+    threshold = Math.max(SWIPE_MIN, Math.min(SWIPE_MAX, card.offsetWidth * 0.25));
     samples = [{ x: e.clientX, y: e.clientY, t: e.timeStamp }];
     downAt = e.timeStamp;
+    shown = { like: -1, nope: -1, skip: -1 };
     card.classList.remove("snap-back");
     card.classList.add("dragging");
     zone.classList.add("dragging");
@@ -840,20 +892,13 @@ function setupDrag() {
     }
     samples.push({ x: e.clientX, y: e.clientY, t: e.timeStamp });
     while (samples.length > 2 && e.timeStamp - samples[0].t > 100) samples.shift();
-
-    const tilt = Math.max(-MAX_TILT_DEG, Math.min(MAX_TILT_DEG, dx / 18));
-    card.style.transform = `translate(${dx}px, ${dy}px) rotate(${tilt}deg)`;
-
-    const threshold = swipeThreshold();
-    if (isUpwardSwipe()) setBadges(0, 0, Math.min(1, -dy / threshold));
-    else if (dx > 0) setBadges(Math.min(1, dx / threshold), 0, 0);
-    else setBadges(0, Math.min(1, -dx / threshold), 0);
-    setDragProgress(Math.min(1, Math.hypot(dx, dy) / (threshold * 1.8)));
+    if (!frame) frame = requestAnimationFrame(paint);
   });
 
   function endDrag(e) {
     if (!dragging) return;
     dragging = false;
+    stopPainting();
     document.body.classList.remove("is-dragging");
     zone.classList.remove("dragging");
     card.classList.remove("dragging");
@@ -917,6 +962,7 @@ function setupLifecycle() {
 async function init() {
   themeMode = loadTheme();
   loadChrome();
+  trackDetailHeight();
   el("theme-toggle").addEventListener("click", cycleTheme);
   loadAudioPrefs();
   updateMuteIcon();

@@ -86,7 +86,7 @@
       <!-- The card underneath: the next file, revealed as the current one is swiped away. -->
       <div id="card-back" class="card-back is-empty" aria-hidden="true">
         <div class="media-wrap">
-          <img id="back-img" class="media" alt="" hidden draggable="false">
+          <img id="back-img" class="media" alt="" hidden draggable="false" decoding="async">
           <video id="back-video" class="media" hidden muted playsinline preload="auto"></video>
           <div id="back-placeholder" class="back-placeholder" hidden></div>
         </div>
@@ -114,7 +114,7 @@
         </div>
 
         <div id="media-wrap" class="media-wrap">
-          <img id="img-preview" class="media" hidden draggable="false" alt="">
+          <img id="img-preview" class="media" hidden draggable="false" alt="" decoding="async">
           <video id="video-preview" class="media" hidden loop autoplay playsinline></video>
           <div id="audio-icon-overlay" class="audio-icon-overlay" hidden>
             <div class="file-icon">AUDIO</div>
