@@ -165,8 +165,26 @@
   </div>
 </div>
 
+<div id="auth-banner" class="newfiles-banner auth-banner" hidden>
+  <span class="newfiles-message">Ta session Google a expire.</span>
+  <button id="btn-auth-reconnect" class="newfiles-refresh">Se reconnecter</button>
+</div>
+
 <div id="toast" class="toast" hidden></div>
 
+<div id="load-error" class="load-error" hidden>
+  Le site vient d'etre mis a jour : recharge la page (Ctrl+Maj+R sur ordinateur, ou ferme puis rouvre l'onglet sur telephone).
+</div>
+<script>
+  // Static hosting caches each file separately, so right after an update a
+  // browser can pair a new script with an older cached one and the module
+  // fails to load at all. Say what to do instead of showing a blank page.
+  window.addEventListener("error", function (e) {
+    if (/export|import|binding|module/i.test(e.message || "")) {
+      document.getElementById("load-error").removeAttribute("hidden");
+    }
+  });
+</script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

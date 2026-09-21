@@ -1,18 +1,22 @@
-import { initAuth, signIn, getToken, signOut } from "./auth.js";
+import { initAuth, signIn, reconnect, getToken, invalidateToken, signOut, setAuthHandlers, refreshFromGesture } from "./auth.js";
 import { DriveApi, extractFolderId } from "./drive.js";
 import { DriveSorter } from "./sorter.js";
 import { Presence } from "./presence.js";
+import { Coordinator } from "./coordinator.js";
+import { getDeviceId, getSessionId } from "./identity.js";
 
 // Fill in with the Client ID from Google Cloud Console (Credentials > OAuth client ID).
 const CLIENT_ID = "917711651027-r9gt2l06bn0mdcd5n7kctbjd2m0lhihk.apps.googleusercontent.com";
 
-let current = null;
-let busy = false;
+let current = null; // the card being shown
+let busy = false; // a swipe/undo is in flight
+let opening = false; // a folder is being opened
 let dragging = false;
 let startX = 0, startY = 0, dx = 0, dy = 0;
 const SWIPE_THRESHOLD = 120;
 
 const el = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function setHidden(elOrId, hide) {
   const node = typeof elOrId === "string" ? el(elOrId) : elOrId;
@@ -230,7 +234,7 @@ function renderFilterBar(data) {
 }
 
 async function toggleFilter(kind, currentActive) {
-  if (busy) return;
+  if (busy || coord.reorganizing || !coord.isOpen) return;
   const next = new Set(currentActive);
   if (next.has(kind)) next.delete(kind); else next.add(kind);
   clearBlobCache();
@@ -239,160 +243,48 @@ async function toggleFilter(kind, currentActive) {
   render(result);
 }
 
-// ---------- drive / sorter setup ----------
+// ---------- drive / sorter / coordination setup ----------
 
-const drive = new DriveApi(getToken);
-const sorter = new DriveSorter(drive);
+const drive = new DriveApi(getToken, { invalidateToken });
+const sorter = new DriveSorter(drive, { deviceId: getDeviceId() });
 sorter.onError = (msg) => toast(msg);
-
-const presence = new Presence(drive);
-// null until the folder's very first presence check resolves - that first
-// resolution just silently sets the initial split (openFolder() is holding
-// on it before it ever shows the app screen), no pause needed. Every
-// resolution AFTER that represents someone actually joining or leaving
-// while people are already sorting, which does get the visible pause.
-let lastPeopleCount = null;
-let reorganizing = false;
+const presence = new Presence(drive, { sessionId: getSessionId() });
 
 function setControlsDisabled(disabled) {
   el("btn-accept").disabled = disabled;
   el("btn-reject").disabled = disabled;
   el("btn-skip").disabled = disabled;
-  if (!disabled) el("btn-undo").disabled = !sorter.history.length;
-  else el("btn-undo").disabled = true;
-}
-
-function startReorgUi(message) {
-  reorganizing = true;
-  setControlsDisabled(true);
-  el("reorg-message").textContent = message;
-  setHidden(el("reorg-overlay"), false);
-}
-
-function endReorg() {
-  reorganizing = false;
-  setHidden(el("reorg-overlay"), true);
-  setControlsDisabled(false);
-}
-
-// The active session list from the last presence resolution, kept around so
-// the "new files" refresh button (triggered on demand, not by a presence
-// change) can re-apply the same split without waiting for the next poll.
-let lastActiveSessions = [];
-
-presence.onChange = async (active) => {
-  lastActiveSessions = active;
-  if (lastPeopleCount === null) {
-    // Initial resolution for this folder - openFolder() is waiting on this
-    // before it shows the app screen at all, so nobody sees a "before" state.
-    sorter.setPresence(presence.sessionId, active);
-    lastPeopleCount = active.length;
-    return;
-  }
-  const oldCount = lastPeopleCount;
-  lastPeopleCount = active.length;
-  startReorgUi(active.length > oldCount
-    ? "Quelqu'un rejoint le tri - repartition des fichiers..."
-    : "Quelqu'un a quitte le tri - repartition des fichiers...");
-  // Someone leaving (or joining) means whoever inherits/loses files needs
-  // the REAL current state, not just what our own session already knew -
-  // otherwise a file the departing person already kept or trashed could
-  // resurface for whoever takes over their share. Runs alongside a minimum
-  // pacing delay (not after it) so the pause isn't longer than it needs to
-  // be on small folders, but still scales up for a slow refresh on big ones.
-  const minPause = new Promise((r) => setTimeout(r, 1600));
-  await Promise.all([sorter.refresh(), minPause]);
-  sorter.setPresence(presence.sessionId, active);
-  render(await sorter.current());
-  endReorg();
-};
-
-// ---------- new files added mid-session ----------
-
-// Deliberately separate from (and much slower than) the presence heartbeat:
-// checking is a full folder rescan, which is fine once in a while but would
-// be wasteful (and risk repeating the earlier Drive rate-limit issue) done
-// every few seconds like presence is.
-const NEW_FILES_CHECK_MS = 45000;
-const NEW_FILES_COUNTDOWN_S = 10;
-let newFilesTimer = null;
-let pendingNewFileIds = [];
-const dismissedNewFileIds = new Set();
-let countdownTimer = null;
-let countdownRemaining = 0;
-
-function startNewFilesWatch() {
-  stopNewFilesWatch();
-  pendingNewFileIds = [];
-  dismissedNewFileIds.clear();
-  newFilesTimer = setInterval(checkForNewFiles, NEW_FILES_CHECK_MS);
-}
-function stopNewFilesWatch() {
-  if (newFilesTimer) clearInterval(newFilesTimer);
-  newFilesTimer = null;
-  clearCountdown();
-  setHidden(el("newfiles-banner"), true);
-}
-
-function clearCountdown() {
-  if (countdownTimer) clearInterval(countdownTimer);
-  countdownTimer = null;
+  el("btn-undo").disabled = disabled || !sorter.history.length;
 }
 
 function newFilesLabel(count) {
   return count === 1 ? "1 nouveau fichier a ete ajoute" : `${count} nouveaux fichiers ont ete ajoutes`;
 }
 
-function startNewFilesCountdown(count) {
-  clearCountdown();
-  countdownRemaining = NEW_FILES_COUNTDOWN_S;
-  const tick = () => {
-    el("newfiles-message").textContent = `${newFilesLabel(count)} - actualisation dans ${countdownRemaining}s...`;
-  };
-  tick();
-  countdownTimer = setInterval(() => {
-    countdownRemaining -= 1;
-    if (countdownRemaining <= 0) {
-      clearCountdown();
-      applyNewFiles();
-    } else {
-      tick();
-    }
-  }, 1000);
-}
+// What the coordinator (which knows nothing about the page) needs from it.
+const ui = {
+  showReorg(message) {
+    setControlsDisabled(true);
+    el("reorg-message").textContent = message;
+    setHidden("reorg-overlay", false);
+  },
+  hideReorg() {
+    setHidden("reorg-overlay", true);
+    setControlsDisabled(false);
+  },
+  render(data) { render(data); },
+  toast(message) { toast(message); },
+  setNewFilesBanner(state) {
+    if (!state) { setHidden("newfiles-banner", true); return; }
+    el("newfiles-message").textContent = `${newFilesLabel(state.count)} - actualisation dans ${state.secondsLeft}s...`;
+    setHidden("newfiles-banner", false);
+  },
+  invalidateMedia() { clearBlobCache(); },
+  isVisible() { return document.visibilityState === "visible"; },
+  setLoadingText(text) { el("loading-text").textContent = text; },
+};
 
-async function checkForNewFiles() {
-  if (reorganizing || !current) return;
-  try {
-    const newIds = await sorter.peekNewFileIds();
-    pendingNewFileIds = newIds;
-    const undismissed = newIds.filter((id) => !dismissedNewFileIds.has(id));
-    if (undismissed.length === 0) {
-      clearCountdown();
-      setHidden(el("newfiles-banner"), true);
-      return;
-    }
-    setHidden(el("newfiles-banner"), false);
-    startNewFilesCountdown(newIds.length);
-  } catch {
-    // Offline or a transient Drive error - just skip this check, retried
-    // automatically on the next interval.
-  }
-}
-
-async function applyNewFiles() {
-  if (reorganizing) return;
-  clearCountdown();
-  setHidden(el("newfiles-banner"), true);
-  startReorgUi("Nouveaux fichiers - mise a jour...");
-  const minPause = new Promise((r) => setTimeout(r, 1200));
-  await Promise.all([sorter.refresh(), minPause]);
-  dismissedNewFileIds.clear();
-  sorter.setPresence(presence.sessionId, lastActiveSessions.length ? lastActiveSessions : [presence.sessionId]);
-  render(await sorter.current());
-  endReorg();
-}
-window.addEventListener("beforeunload", () => { presence.stop(); stopNewFilesWatch(); });
+const coord = new Coordinator({ sorter, presence, ui });
 
 function lastFolder() {
   try { return JSON.parse(localStorage.getItem("lastFolder") || "null"); } catch (e) { return null; }
@@ -412,7 +304,7 @@ function fmtCounts(data) {
   const percent = Math.min(100, Math.round((done / total) * 100));
   el("progress-fill").style.width = percent + "%";
   el("progress-percent").textContent = percent + "%";
-  el("btn-undo").disabled = !data.canUndo;
+  el("btn-undo").disabled = !data.canUndo || coord.reorganizing;
   updateSpeedStats(data.remaining || 0);
   renderFilterBar(data);
   const peopleEl = el("stat-people");
@@ -424,21 +316,33 @@ function fmtCounts(data) {
   }
 }
 
-// Blob cache keyed by file id, used to preload the next file's image while
-// the current one is being viewed, and to hand render() an already-resolved
-// blob when the user swipes to it (feels instant instead of re-fetching).
-const blobCache = new Map();
+// Blob cache keyed by file id, used to preload upcoming files while the
+// current one is being viewed, and to hand render() an already-resolved blob
+// when the user swipes to it (feels instant instead of re-fetching). Each
+// entry can be cancelled, so a prefetch nobody needs any more stops
+// downloading instead of running to completion in the background.
+const blobCache = new Map(); // id -> { promise, controller }
 function getBlob(id) {
-  if (!blobCache.has(id)) {
-    blobCache.set(id, drive.mediaBlob(id).catch((e) => { blobCache.delete(id); throw e; }));
+  let entry = blobCache.get(id);
+  if (!entry) {
+    const controller = new AbortController();
+    const promise = drive.mediaBlob(id, { signal: controller.signal }).catch((e) => {
+      blobCache.delete(id);
+      throw e;
+    });
+    entry = { promise, controller };
+    blobCache.set(id, entry);
   }
-  return blobCache.get(id);
+  return entry.promise;
 }
-// Called whenever the queue is rebuilt from scratch (new folder, filter
-// change, restart) so prefetches for files that are no longer upcoming
-// don't sit in memory forever.
-function clearBlobCache() {
-  blobCache.clear();
+// Drops (and cancels) cached/in-flight blobs, except those in `keep`. Called
+// with no argument when the queue is rebuilt (new folder, filter, reorg).
+function clearBlobCache(keep = null) {
+  for (const [id, entry] of blobCache) {
+    if (keep && keep.has(id)) continue;
+    entry.controller.abort();
+    blobCache.delete(id);
+  }
 }
 
 // Object URL currently assigned to the visible media element. Revoked and
@@ -481,7 +385,7 @@ function resetCardTransform() {
   card.classList.add("pop");
 }
 
-async function render(data) {
+function render(data) {
   if (!data || data.done) {
     fmtCounts(data || {});
     showScreen("done");
@@ -489,7 +393,13 @@ async function render(data) {
     const trashed = data ? (data.trashed ?? 0) : 0;
     el("done-summary").textContent = `${kept} fichier(s) garde(s), ${trashed} envoye(s) a la poubelle.`;
     stopVideo();
+    current = null;
     return;
+  }
+  // A reorganisation or new files can bring cards back after "Termine !".
+  if (screens.app.hasAttribute("hidden")) {
+    showScreen("app");
+    setChromeVisible(false);
   }
   current = data;
   fmtCounts(data);
@@ -569,9 +479,11 @@ const PRELOAD_DEPTH = 5;
 const PRELOAD_CONCURRENCY = 2;
 
 function preload() {
-  const items = sorter.upcoming(PRELOAD_DEPTH).filter(
-    (f) => f.kind === "image" || f.kind === "video" || f.kind === "audio"
-  );
+  const upcoming = sorter.upcoming(PRELOAD_DEPTH);
+  // Anything cached or downloading that is no longer coming up (skipped,
+  // reassigned, filtered out) is cancelled rather than left to finish.
+  clearBlobCache(new Set([current?.id, ...upcoming.map((f) => f.id)]));
+  const items = upcoming.filter((f) => f.kind === "image" || f.kind === "video" || f.kind === "audio");
   let i = 0;
   const runNext = () => {
     if (i >= items.length) return;
@@ -584,64 +496,97 @@ function preload() {
 // ---------- actions ----------
 
 const FLY_DISTANCE = 900;
+const FLY_MS = 260;
 
-function animateOut(action, cb) {
+function animateOut(action) {
   const card = el("card");
   const dir = action === "accept" ? 1 : -1;
   card.classList.add("fly-out");
   card.style.transform = `translate(${dir * FLY_DISTANCE}px, -40px) rotate(${dir * 30}deg)`;
   card.style.opacity = "0";
-  setTimeout(cb, 260);
+  return sleep(FLY_MS);
 }
-function animateSkip(cb) {
+function animateSkip() {
   const card = el("card");
   card.classList.add("fly-out");
   card.style.transform = "translateY(-700px) scale(0.92)";
   card.style.opacity = "0";
-  setTimeout(cb, 260);
+  return sleep(FLY_MS);
+}
+
+// After the card has flown away, a reorganisation or leaving the folder may
+// have started. The decision is then dropped (nothing was recorded yet) and
+// the card is put back, so it is never left invisible.
+function droppedDuringAnimation() {
+  if (!coord.reorganizing && coord.isOpen) return false;
+  resetCardTransform();
+  return true;
+}
+
+async function afterDecision(data) {
+  // Out of files: another session may have left work behind, or files may
+  // have been added. The coordinator looks once more and draws the result.
+  if (data.done) await coord.reconcileIfDone();
+  else render(data);
 }
 
 async function decide(action) {
-  if (busy || reorganizing || !current) return;
+  if (busy || coord.reorganizing || !current) return;
   busy = true;
-  animateOut(action, async () => {
+  try {
+    await animateOut(action);
+    if (droppedDuringAnimation()) return;
     const data = action === "accept" ? await sorter.accept() : await sorter.reject();
     recordDecision();
-    render(data);
+    await afterDecision(data);
+  } finally {
     busy = false;
-  });
+  }
 }
 
 async function doSkip() {
-  if (busy || reorganizing || !current) return;
+  if (busy || coord.reorganizing || !current) return;
   busy = true;
-  animateSkip(async () => {
-    const data = await sorter.skipNow();
-    render(data);
+  try {
+    await animateSkip();
+    if (droppedDuringAnimation()) return;
+    render(await sorter.skipNow());
+  } finally {
     busy = false;
-  });
+  }
 }
 
 async function doUndo() {
-  if (busy || reorganizing) return;
+  if (busy || coord.reorganizing || !coord.isOpen) return;
   busy = true;
-  const data = await sorter.undo();
-  render(data);
-  busy = false;
+  try {
+    render(await sorter.undo());
+  } finally {
+    busy = false;
+  }
 }
 
 async function doRestartFolder() {
-  clearBlobCache();
-  const data = await sorter.resetProgress();
+  if (busy || coord.reorganizing || !coord.isOpen) return;
   resetSpeedStats();
-  showScreen("app");
   setChromeVisible(false);
-  render(data);
+  await coord.restart();
 }
 
 // ---------- folder loading ----------
 
+// Leaves the current folder for good: stops presence and the new-files
+// watch, saves pending progress, and forgets the card on screen.
+async function leaveFolder() {
+  current = null;
+  clearBlobCache();
+  stopVideo();
+  await coord.close();
+}
+
 async function openFolder(folderId, name) {
+  if (opening) return;
+  opening = true;
   showScreen("loading");
   el("loading-text").textContent = "Chargement du dossier...";
   try {
@@ -652,22 +597,22 @@ async function openFolder(folderId, name) {
     el("folder-path").title = folderName;
     resetSpeedStats();
     clearBlobCache();
-    lastPeopleCount = null;
-    await sorter.loadFolder(folderId, folderName);
-    // Wait for the first presence check (and its silent initial split -
-    // see presence.onChange) before showing anything, so someone joining a
-    // folder that's already being sorted never briefly sees the full,
-    // unsplit list before their real share is known.
-    el("loading-text").textContent = "Verification des autres participants...";
-    await presence.start(folderId);
+    const first = await coord.open(folderId, folderName);
+    if (!first) {
+      // Superseded by leaving/opening something else; don't leave the
+      // loading screen up if nothing else is going to replace it.
+      if (!screens.loading.hasAttribute("hidden")) showScreen("folder");
+      return;
+    }
     showScreen("app");
     setChromeVisible(false);
-    render(await sorter.current());
-    startNewFilesWatch();
+    render(first);
   } catch (e) {
     setHidden(el("folder-error"), false);
     el("folder-error").textContent = "Impossible d'ouvrir ce dossier : " + e.message;
     showScreen("folder");
+  } finally {
+    opening = false;
   }
 }
 
@@ -688,7 +633,7 @@ function handleFolderSubmit() {
 function setupDrag() {
   const card = el("card");
   card.addEventListener("pointerdown", (e) => {
-    if (busy) return;
+    if (busy || coord.reorganizing) return;
     dragging = true;
     startX = e.clientX; startY = e.clientY;
     dx = 0; dy = 0;
@@ -736,6 +681,33 @@ function setupKeys() {
   });
 }
 
+// ---------- page lifecycle & session ----------
+
+function setupLifecycle() {
+  // Google sessions last about an hour and can only be renewed from a real
+  // tap/click (a background renewal is blocked by the browser): renew ahead
+  // of time whenever the user is interacting, and if that still fails, ask
+  // them to reconnect instead of letting everything freeze silently.
+  document.addEventListener("pointerup", refreshFromGesture, true);
+  document.addEventListener("keydown", refreshFromGesture, true);
+  setAuthHandlers({
+    onNeedsUser: () => setHidden("auth-banner", false),
+    onRecovered: () => setHidden("auth-banner", true),
+  });
+  el("btn-auth-reconnect").addEventListener("click", () => {
+    reconnect().catch(() => toast("Reconnexion impossible - reessaie."));
+  });
+
+  // Save what is pending as soon as the page may go away, and check in again
+  // (heartbeat + who is here) the moment it comes back.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") sorter.flushSaves();
+    else if (coord.isOpen) coord.resume().catch(() => {});
+  });
+  window.addEventListener("pagehide", () => { sorter.flushSaves(); });
+  window.addEventListener("online", () => { if (coord.isOpen) coord.resume().catch(() => {}); });
+}
+
 // ---------- init ----------
 
 async function init() {
@@ -774,22 +746,30 @@ async function init() {
       toast("Impossible d'ouvrir le fichier.");
     }
   });
-  el("btn-choose-again").addEventListener("click", () => { presence.stop(); stopNewFilesWatch(); showScreen("folder"); loadFolderList(); });
-  el("btn-change-folder").addEventListener("click", () => { presence.stop(); stopNewFilesWatch(); showScreen("folder"); loadFolderList(); });
+  const backToFolders = async () => {
+    showScreen("folder");
+    loadFolderList();
+    await leaveFolder();
+  };
+  el("btn-choose-again").addEventListener("click", backToFolders);
+  el("btn-change-folder").addEventListener("click", backToFolders);
   el("btn-restart-folder").addEventListener("click", doRestartFolder);
   el("btn-open-folder").addEventListener("click", handleFolderSubmit);
   el("folder-input").addEventListener("keydown", (e) => { if (e.key === "Enter") handleFolderSubmit(); });
-  el("btn-signout").addEventListener("click", () => { presence.stop(); stopNewFilesWatch(); signOut(); showScreen("signin"); });
-  el("btn-newfiles-dismiss").addEventListener("click", () => {
-    clearCountdown();
-    pendingNewFileIds.forEach((id) => dismissedNewFileIds.add(id));
-    setHidden(el("newfiles-banner"), true);
+  el("btn-signout").addEventListener("click", async () => {
+    showScreen("signin");
+    // Leave first (it needs the token to remove our presence and save
+    // progress) but never let a stuck network keep someone from signing out.
+    await Promise.race([leaveFolder(), sleep(3000)]);
+    signOut();
   });
-  el("btn-newfiles-refresh").addEventListener("click", () => applyNewFiles());
+  el("btn-newfiles-dismiss").addEventListener("click", () => coord.dismissNewFiles());
+  el("btn-newfiles-refresh").addEventListener("click", () => coord.applyNewFilesNow());
 
   setupDrag();
   setupKeys();
   setupVideoControlsAutoHide();
+  setupLifecycle();
 
   try {
     await initAuth(CLIENT_ID);
@@ -826,7 +806,9 @@ function afterSignIn() {
   loadFolderList();
 }
 
+let folderListCall = 0;
 async function loadFolderList() {
+  const call = ++folderListCall; // ignore answers that were superseded by a newer call
   const statusEl = el("folder-list-status");
   const listEl = el("folder-list");
   statusEl.textContent = "Recherche de tes dossiers Drive...";
@@ -834,6 +816,7 @@ async function loadFolderList() {
   listEl.innerHTML = "";
   try {
     const folders = await drive.listAccessibleFolders();
+    if (call !== folderListCall) return;
     if (!folders.length) {
       statusEl.textContent = "Aucun dossier trouve (verifie qu'il a bien ete partage avec toi).";
       return;
@@ -849,6 +832,7 @@ async function loadFolderList() {
       listEl.appendChild(item);
     }
   } catch (e) {
+    if (call !== folderListCall) return;
     statusEl.textContent = "Impossible de lister les dossiers (" + e.message + "). Utilise le lien direct ci-dessous.";
   }
 }

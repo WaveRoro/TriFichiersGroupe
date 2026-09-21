@@ -889,3 +889,33 @@ html, body {
 
   .keys-hint { display: none; }
 }
+
+/* Session-expired prompt: above everything (including the reorganising
+   overlay), and pinned near the top on every layout - it must be reachable
+   even while the rest of the page is waiting on a token. */
+.auth-banner {
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  z-index: 80;
+}
+@media (max-width: 640px) {
+  .auth-banner { top: calc(env(safe-area-inset-top, 0px) + 12px); }
+}
+
+.load-error {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 22px);
+  transform: translateX(-50%);
+  z-index: 90;
+  max-width: min(420px, 90vw);
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--accent-red);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+  box-shadow: 0 8px 28px var(--shadow-color);
+}
+
