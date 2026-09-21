@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Tri collaboratif de photos/videos sur Google Drive (site statique dans docs/). Aucune dependance : les tests utilisent le lanceur integre de Node.",
   "scripts": {
-    "test": "node --test --test-timeout=25000 \"tests/*.test.mjs\""
+    "test": "node --test --test-timeout=25000 \"tests/*.test.mjs\"",
+    "stamp": "node tools/stamp.mjs"
   }
 }

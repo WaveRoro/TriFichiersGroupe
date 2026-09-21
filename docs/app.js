@@ -1036,7 +1036,7 @@ function setupDrag() {
     card.classList.remove("snap-back");
     card.classList.add("dragging");
     zone.classList.add("dragging");
-    card.setPointerCapture(e.pointerId);
+    try { card.setPointerCapture(e.pointerId); } catch (err) {}
   });
 
   card.addEventListener("pointermove", (e) => {
@@ -1180,7 +1180,9 @@ function setupZoom() {
     if (!zoomable()) return;
     if (pointers.size === 2) {
       if (dragApi) dragApi.abort();
-      card.setPointerCapture(e.pointerId);
+      // Capture keeps both fingers' events coming to the card; the pinch must
+      // start even if a browser refuses it.
+      try { card.setPointerCapture(e.pointerId); } catch (err) {}
       startPinch();
       e.stopImmediatePropagation();
       return;
@@ -1199,7 +1201,7 @@ function setupZoom() {
       }
     }
     if (zoom.active && e.button === 0) {
-      card.setPointerCapture(e.pointerId);
+      try { card.setPointerCapture(e.pointerId); } catch (err) {}
       startPan(e.pointerId);
       e.stopImmediatePropagation();
     }

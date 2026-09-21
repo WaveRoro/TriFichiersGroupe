@@ -289,6 +289,15 @@ button, input { font: inherit; color: inherit; }
 }
 .theme-toggle:active { transform: scale(0.92); }
 
+/* The version of the site this page is running (see tools/stamp.mjs). */
+.app-version-line {
+  margin: 14px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ==========================================================================
    Sorting screen: header
    ========================================================================== */
