@@ -4,6 +4,7 @@ import { DriveSorter } from "./sorter.js";
 import { Presence } from "./presence.js";
 import { Coordinator } from "./coordinator.js";
 import { getDeviceId, getSessionId } from "./identity.js";
+import { Zoom } from "./zoom.js";
 
 // Fill in with the Client ID from Google Cloud Console (Credentials > OAuth client ID).
 const CLIENT_ID = "917711651027-r9gt2l06bn0mdcd5n7kctbjd2m0lhihk.apps.googleusercontent.com";
@@ -428,9 +429,34 @@ function stopVideo() {
 
 // ---------- ambient fill ----------
 
+// One direction of a box blur over RGBA pixels (edges repeat their last pixel).
+function blurPass(src, dst, w, h, radius, horizontal) {
+  const length = horizontal ? w : h;
+  const lines = horizontal ? h : w;
+  const along = horizontal ? 4 : w * 4;
+  const across = horizontal ? w * 4 : 4;
+  const width = 2 * radius + 1;
+  for (let line = 0; line < lines; line++) {
+    const base = line * across;
+    for (let channel = 0; channel < 3; channel++) {
+      let sum = 0;
+      for (let k = -radius; k <= radius; k++) {
+        sum += src[base + Math.min(length - 1, Math.max(0, k)) * along + channel];
+      }
+      for (let i = 0; i < length; i++) {
+        dst[base + i * along + channel] = sum / width;
+        sum += src[base + Math.min(length - 1, i + radius + 1) * along + channel]
+          - src[base + Math.max(0, i - radius) * along + channel];
+      }
+    }
+  }
+}
+
 // Fills the bars around a photo/video that doesn't fill the card with its own
-// colours: the picture is shrunk to a few pixels and the browser enlarges that
-// smoothly. Drawn once per file, so it costs nothing while swiping.
+// colours. The picture is shrunk to a tiny copy which is really blurred (a few
+// box-blur passes) before the browser enlarges it: enlarging a tiny picture on
+// its own leaves visible pixels, a blurred one becomes a smooth gradient.
+// Drawn once per file, so it costs nothing while swiping.
 function paintAmbient(canvas, source) {
   const w = source.naturalWidth || source.videoWidth;
   const h = source.naturalHeight || source.videoHeight;
@@ -438,28 +464,31 @@ function paintAmbient(canvas, source) {
   try {
     // Two steps: shrinking a large photo straight to a few pixels skips most of it.
     const step = document.createElement("canvas");
-    const stepScale = 64 / Math.max(w, h);
+    const stepScale = 96 / Math.max(w, h);
     step.width = Math.max(2, Math.round(w * stepScale));
     step.height = Math.max(2, Math.round(h * stepScale));
-    const sctx = step.getContext("2d");
-    sctx.imageSmoothingQuality = "high";
-    sctx.drawImage(source, 0, 0, step.width, step.height);
-    let small = document.createElement("canvas");
-    const scale = 16 / Math.max(w, h);
-    small.width = Math.max(2, Math.round(w * scale));
-    small.height = Math.max(2, Math.round(h * scale));
-    small.getContext("2d").drawImage(step, 0, 0, small.width, small.height);
-    // Enlarged in a few doublings: each one smooths the blockiness a little
-    // more, ending up much softer than a single big stretch.
-    for (let i = 0; i < 3; i++) {
-      const bigger = document.createElement("canvas");
-      bigger.width = small.width * 2;
-      bigger.height = small.height * 2;
-      const bctx = bigger.getContext("2d");
-      bctx.imageSmoothingQuality = "high";
-      bctx.drawImage(small, 0, 0, bigger.width, bigger.height);
-      small = bigger;
+    const stepCtx = step.getContext("2d");
+    stepCtx.imageSmoothingQuality = "high";
+    stepCtx.drawImage(source, 0, 0, step.width, step.height);
+
+    const small = document.createElement("canvas");
+    const scale = 40 / Math.max(w, h);
+    small.width = Math.max(4, Math.round(w * scale));
+    small.height = Math.max(4, Math.round(h * scale));
+    const smallCtx = small.getContext("2d");
+    smallCtx.imageSmoothingQuality = "high";
+    smallCtx.drawImage(step, 0, 0, small.width, small.height);
+
+    const image = smallCtx.getImageData(0, 0, small.width, small.height);
+    const from = image.data;
+    const to = new Uint8ClampedArray(from.length);
+    for (let pass = 0; pass < 3; pass++) {
+      blurPass(from, to, small.width, small.height, 4, true);
+      blurPass(to, from, small.width, small.height, 4, false);
     }
+    for (let i = 3; i < from.length; i += 4) from[i] = 255;
+    smallCtx.putImageData(image, 0, 0);
+
     canvas.width = small.width;
     canvas.height = small.height;
     canvas.getContext("2d").drawImage(small, 0, 0);
@@ -497,6 +526,7 @@ window.addEventListener("resize", () => {
     for (const id of ["img-preview", "video-preview", "back-img", "back-video"]) {
       if (!el(id).hasAttribute("hidden")) fitMedia(el(id));
     }
+    refitZoom();
   });
 });
 
@@ -723,6 +753,7 @@ function render(data, { seamless = false } = {}) {
   el("file-name").textContent = data.name;
   el("file-meta").textContent = `${data.sizeH} - ${data.ext || "sans extension"}`;
 
+  resetZoom();
   const ready = showMedia(data, seq);
   preload();
   if (!seamless) return Promise.resolve();
@@ -963,6 +994,16 @@ function setupDrag() {
     setDragProgress(0);
   }
 
+  // A second finger arrived: this is a pinch, not a swipe.
+  function abort() {
+    if (!dragging) return;
+    dragging = false;
+    stopPainting();
+    zone.classList.remove("dragging");
+    card.classList.remove("dragging");
+    snapBack();
+  }
+
   function speed() {
     if (samples.length < 2) return { vx: 0, vy: 0 };
     const first = samples[0];
@@ -1033,12 +1074,200 @@ function setupDrag() {
   }
   card.addEventListener("pointerup", endDrag);
   card.addEventListener("pointercancel", endDrag);
+  return { abort };
+}
+
+// ---------- zoom (photos only) ----------
+// Two fingers pinch, the wheel or a trackpad pinch zooms at the cursor, a
+// double click zooms in/out, and while zoomed one finger or the mouse pans
+// instead of swiping. These handlers are registered before the swipe ones and
+// take the events they use, so the two never fight over the same gesture.
+
+const zoom = new Zoom();
+let dragApi = null;
+
+function zoomable() {
+  return !!current && current.kind === "image" && !el("img-preview").hasAttribute("hidden")
+    && !busy && !coord.reorganizing;
+}
+
+function zoomGeometry() {
+  const img = el("img-preview");
+  const wrap = el("media-wrap");
+  const rect = wrap.getBoundingClientRect();
+  return {
+    centre: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+    box: { w: wrap.clientWidth, h: wrap.clientHeight },
+    fit: {
+      w: parseFloat(img.style.width) || wrap.clientWidth,
+      h: parseFloat(img.style.height) || wrap.clientHeight,
+    },
+  };
+}
+
+let zoomFrame = 0;
+function drawZoom(smooth = false) {
+  const img = el("img-preview");
+  img.classList.toggle("zoom-smooth", smooth);
+  img.classList.toggle("zoomed", zoom.active);
+  if (smooth) {
+    if (zoomFrame) cancelAnimationFrame(zoomFrame);
+    zoomFrame = 0;
+    img.style.transform = zoom.css();
+    return;
+  }
+  if (zoomFrame) return;
+  zoomFrame = requestAnimationFrame(() => {
+    zoomFrame = 0;
+    img.style.transform = zoom.css();
+  });
+}
+
+function resetZoom() {
+  const img = el("img-preview");
+  if (!zoom.active && !img.style.transform) return;
+  zoom.reset();
+  if (zoomFrame) cancelAnimationFrame(zoomFrame);
+  zoomFrame = 0;
+  img.classList.remove("zoom-smooth", "zoomed");
+  img.style.transform = "";
+}
+
+function refitZoom() {
+  if (!zoom.active) return;
+  const g = zoomGeometry();
+  zoom.refit(g.box, g.fit);
+  drawZoom();
+}
+
+function setupZoom() {
+  const card = el("card");
+  const pointers = new Map(); // pointerId -> { x, y } for the fingers/mouse currently down
+  let mode = "none"; // "none" | "pinch" | "pan"
+  let geometry = null;
+  let panId = null;
+  let panMoved = false;
+  let panStartAt = 0;
+  let startDistance = 1;
+  let lastClick = { t: 0, x: 0, y: 0 };
+
+  const focalOf = (a, b) => ({
+    x: (a.x + b.x) / 2 - geometry.centre.x,
+    y: (a.y + b.y) / 2 - geometry.centre.y,
+  });
+
+  function startPinch() {
+    const [a, b] = [...pointers.values()];
+    geometry = zoomGeometry();
+    startDistance = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+    zoom.beginPinch(focalOf(a, b));
+    mode = "pinch";
+  }
+
+  function startPan(id) {
+    geometry = zoomGeometry();
+    panId = id;
+    panMoved = false;
+    panStartAt = performance.now();
+    mode = "pan";
+  }
+
+  card.addEventListener("pointerdown", (e) => {
+    // A primary pointer is the first finger of a new gesture, so anything still
+    // listed (a release that never reached us) is stale.
+    if (e.isPrimary) { pointers.clear(); mode = "none"; }
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!zoomable()) return;
+    if (pointers.size === 2) {
+      if (dragApi) dragApi.abort();
+      card.setPointerCapture(e.pointerId);
+      startPinch();
+      e.stopImmediatePropagation();
+      return;
+    }
+    if (pointers.size > 2) { e.stopImmediatePropagation(); return; }
+    if (e.pointerType === "mouse" && e.button === 0) {
+      const isDouble = e.timeStamp - lastClick.t < 320
+        && Math.hypot(e.clientX - lastClick.x, e.clientY - lastClick.y) < 8;
+      lastClick = { t: isDouble ? 0 : e.timeStamp, x: e.clientX, y: e.clientY };
+      if (isDouble) {
+        const g = zoomGeometry();
+        zoom.toggleAt({ x: e.clientX - g.centre.x, y: e.clientY - g.centre.y }, g.box, g.fit);
+        drawZoom(true);
+        e.stopImmediatePropagation();
+        return;
+      }
+    }
+    if (zoom.active && e.button === 0) {
+      card.setPointerCapture(e.pointerId);
+      startPan(e.pointerId);
+      e.stopImmediatePropagation();
+    }
+  });
+
+  card.addEventListener("pointermove", (e) => {
+    const p = pointers.get(e.pointerId);
+    if (!p) return;
+    const moveX = e.clientX - p.x;
+    const moveY = e.clientY - p.y;
+    p.x = e.clientX;
+    p.y = e.clientY;
+    if (mode === "pinch") {
+      if (pointers.size >= 2) {
+        const [a, b] = [...pointers.values()];
+        const ratio = Math.hypot(a.x - b.x, a.y - b.y) / startDistance;
+        zoom.pinchTo(ratio, focalOf(a, b), geometry.box, geometry.fit);
+        drawZoom();
+      }
+      e.stopImmediatePropagation();
+    } else if (mode === "pan" && e.pointerId === panId) {
+      if (moveX || moveY) {
+        panMoved = true;
+        zoom.panBy(moveX, moveY, geometry.box, geometry.fit);
+        drawZoom();
+      }
+      e.stopImmediatePropagation();
+    }
+  });
+
+  function release(e) {
+    if (!pointers.delete(e.pointerId)) return;
+    if (mode === "pinch") {
+      if (pointers.size < 2) {
+        zoom.endPinch();
+        drawZoom(!zoom.active); // slide back smoothly when the pinch ended (almost) unzoomed
+        const rest = [...pointers.keys()][0];
+        if (zoom.active && rest !== undefined) startPan(rest);
+        else mode = "none";
+      }
+      e.stopImmediatePropagation();
+    } else if (mode === "pan" && e.pointerId === panId) {
+      const wasTap = e.type === "pointerup" && !panMoved && performance.now() - panStartAt < TAP_MAX_MS;
+      mode = "none";
+      panId = null;
+      if (wasTap && isMobileLayout()) toggleChrome();
+      e.stopImmediatePropagation();
+    }
+  }
+  card.addEventListener("pointerup", release);
+  card.addEventListener("pointercancel", release);
+
+  card.addEventListener("wheel", (e) => {
+    if (!zoomable()) return;
+    e.preventDefault();
+    const g = zoomGeometry();
+    const unit = e.deltaMode === 1 ? 16 : 1;
+    const factor = Math.exp(-e.deltaY * unit * (e.ctrlKey ? 0.01 : 0.0018));
+    zoom.zoomAt(factor, { x: e.clientX - g.centre.x, y: e.clientY - g.centre.y }, g.box, g.fit);
+    drawZoom();
+  }, { passive: false });
 }
 
 function setupKeys() {
   window.addEventListener("keydown", (e) => {
     if (screens.app.hasAttribute("hidden")) return;
     if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+    if (e.key === "Escape" && zoom.active) { zoom.reset(); drawZoom(true); return; }
     if (e.key === "ArrowRight" || e.key === "Enter") { e.preventDefault(); decide("accept"); }
     else if (e.key === "ArrowLeft" || e.key === "Backspace" || e.key === "Delete") { e.preventDefault(); decide("reject"); }
     else if (e.key === " " || e.code === "Space") { e.preventDefault(); doSkip(); }
@@ -1132,7 +1361,8 @@ async function init() {
   el("btn-newfiles-dismiss").addEventListener("click", () => coord.dismissNewFiles());
   el("btn-newfiles-refresh").addEventListener("click", () => coord.applyNewFilesNow());
 
-  setupDrag();
+  setupZoom();
+  dragApi = setupDrag();
   setupKeys();
   setupVideoControlsAutoHide();
   setupLifecycle();
