@@ -481,6 +481,23 @@ window.addEventListener("resize", () => {
 let backId = null;
 let backTimer = null;
 
+// A node about to sit behind the card, previewing a file nobody has
+// committed to seeing yet: it must never play sound or advance on its own,
+// whichever physical <video> element (see promoteBackVideo) currently holds
+// that role.
+function makeInert(vid) {
+  vid.onerror = null;
+  vid.ontimeupdate = null;
+  vid.onplaying = null;
+  vid.onpause = null;
+  vid.oncanplay = null;
+  vid.onloadeddata = null;
+  vid.muted = true;
+  vid.loop = false;
+  vid.autoplay = false;
+  vid.preload = "auto";
+}
+
 function clearBack() {
   const img = el("back-img");
   const vid = el("back-video");
@@ -488,7 +505,8 @@ function clearBack() {
   setHidden(vid, true);
   setHidden("back-placeholder", true);
   img.onload = null;
-  vid.onloadeddata = null;
+  makeInert(vid);
+  delete vid.dataset.fileId;
   img.removeAttribute("src");
   try { vid.pause(); vid.removeAttribute("src"); vid.load(); } catch (e) {}
 }
@@ -517,12 +535,39 @@ function renderBack(next) {
   const node = next.kind === "image" ? el("back-img") : el("back-video");
   entry.promise.then((loaded) => {
     if (backId !== next.id) return;
-    // "#t=" makes a paused video show its first frame.
-    if (next.kind === "video") node.onloadeddata = () => fitMedia(node);
-    else node.onload = () => fitMedia(node);
+    // "#t=" makes a paused video show its first frame. The id is recorded so
+    // that if the user swipes to it before anything else changes, showMedia()
+    // can recognise this exact, already-loading element and take it over
+    // instead of starting a second, from-scratch download and decode.
+    if (next.kind === "video") {
+      node.dataset.fileId = next.id;
+      node.onloadeddata = () => fitMedia(node);
+    } else {
+      node.onload = () => fitMedia(node);
+    }
     node.src = next.kind === "video" ? loaded.url + "#t=0.001" : loaded.url;
     setHidden(node, false);
   }).catch(() => {});
+}
+
+// Hands the already-loading "next" video element the current-card role: it
+// keeps its buffered/decoded data and (if playback had already started)
+// keeps playing, instead of showMedia() attaching the file to a brand-new
+// element and paying for a fresh decode - the stutter a phone's weaker CPU
+// showed plainly even though the file was already fully downloaded.
+function promoteBackVideo() {
+  const frontWrap = el("media-wrap");
+  const front = el("video-preview");
+  const back = el("back-video");
+  const backWrap = back.parentElement;
+  frontWrap.replaceChild(back, front); // moves `back` here, detaches `front`
+  backWrap.appendChild(front);
+  front.id = "back-video";
+  back.id = "video-preview";
+  makeInert(front); // the demoted element now previews whatever comes next
+  delete front.dataset.fileId;
+  backId = null; // that file is no longer waiting in the back slot
+  return back;
 }
 
 // ---------- the card on top ----------
@@ -615,24 +660,36 @@ function showMedia(data, seq) {
       };
       attachMedia(img, data.id, () => fail(img));
     } else if (data.kind === "video" || data.kind === "audio") {
-      applyAudioPrefs();
       setHidden(audioIconOverlay, data.kind !== "audio");
-      vid.onerror = () => fail(vid);
-      vid.ontimeupdate = updateProgressRing;
-      vid.onplaying = startRingLoop;
-      vid.onpause = stopRingLoop;
-      vid.oncanplay = () => {
-        if (seq === renderSeq) {
-          fitMedia(vid);
-          setHidden(vid, false);
-          setHidden(videoControls, false);
-          setHidden(ring, false);
-          vid.play().catch(() => {});
-          showVideoControls();
-        }
-        finish();
+      const activate = (node) => {
+        if (seq !== renderSeq) return;
+        applyAudioPrefs();
+        node.loop = true;
+        fitMedia(node);
+        setHidden(node, false);
+        setHidden(videoControls, false);
+        setHidden(ring, false);
+        node.play().catch(() => {});
+        showVideoControls();
       };
-      attachMedia(vid, data.id, () => fail(vid), () => vid.load());
+      const waiting = el("back-video");
+      const alreadyThere = data.kind === "video" && waiting.dataset.fileId === data.id && waiting.readyState >= 2;
+      if (alreadyThere) {
+        const node = promoteBackVideo();
+        node.onerror = () => fail(node);
+        node.ontimeupdate = updateProgressRing;
+        node.onplaying = startRingLoop;
+        node.onpause = stopRingLoop;
+        activate(node);
+        finish();
+      } else {
+        vid.onerror = () => fail(vid);
+        vid.ontimeupdate = updateProgressRing;
+        vid.onplaying = startRingLoop;
+        vid.onpause = stopRingLoop;
+        vid.oncanplay = () => { activate(vid); finish(); };
+        attachMedia(vid, data.id, () => fail(vid), () => vid.load());
+      }
     } else if (data.kind === "pdf") {
       setHidden(pdfFrame, false);
       pdfFrame.onerror = () => fail(pdfFrame);
