@@ -5,17 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Tri Photos & Videos</title>
-<link rel="stylesheet" href="style.css?v=1ee76d2b">
+<link rel="stylesheet" href="style.css?v=11932dba">
 <script type="importmap">
 {
   "imports": {
-    "./auth.js": "./auth.js?v=1ee76d2b",
-    "./coordinator.js": "./coordinator.js?v=1ee76d2b",
-    "./drive.js": "./drive.js?v=1ee76d2b",
-    "./identity.js": "./identity.js?v=1ee76d2b",
-    "./presence.js": "./presence.js?v=1ee76d2b",
-    "./sorter.js": "./sorter.js?v=1ee76d2b",
-    "./zoom.js": "./zoom.js?v=1ee76d2b"
+    "./auth.js": "./auth.js?v=11932dba",
+    "./coordinator.js": "./coordinator.js?v=11932dba",
+    "./drive.js": "./drive.js?v=11932dba",
+    "./identity.js": "./identity.js?v=11932dba",
+    "./presence.js": "./presence.js?v=11932dba",
+    "./sorter.js": "./sorter.js?v=11932dba",
+    "./zoom.js": "./zoom.js?v=11932dba"
   }
 }
 </script>
@@ -40,7 +40,7 @@
     <p class="lead">Trie a plusieurs les photos et videos stockees sur Google Drive.</p>
     <button id="btn-signin" class="btn btn-primary btn-big">Se connecter avec Google</button>
     <p id="signin-error" class="hint is-error" hidden></p>
-    <p class="app-version-line">version <span class="app-version">1ee76d2b</span></p>
+    <p class="app-version-line">version <span class="app-version">11932dba</span></p>
   </div>
 </div>
 
@@ -60,7 +60,7 @@
     </details>
     <p id="folder-error" class="hint is-error" hidden></p>
     <button id="btn-signout" class="btn-link subtle">Se deconnecter</button>
-    <p class="app-version-line">version <span class="app-version">1ee76d2b</span></p>
+    <p class="app-version-line">version <span class="app-version">11932dba</span></p>
   </div>
 </div>
 
@@ -102,7 +102,6 @@
       <!-- The card underneath: the next file, revealed as the current one is swiped away. -->
       <div id="card-back" class="card-back is-empty" aria-hidden="true">
         <div class="media-wrap">
-          <canvas id="back-ambient" class="ambient" hidden></canvas>
           <img id="back-img" class="media" alt="" hidden draggable="false" decoding="async">
           <video id="back-video" class="media" hidden muted playsinline preload="auto"></video>
           <div id="back-placeholder" class="back-placeholder" hidden></div>
@@ -121,7 +120,6 @@
         </div>
 
         <div id="media-wrap" class="media-wrap">
-          <canvas id="ambient" class="ambient" hidden></canvas>
           <img id="img-preview" class="media" hidden draggable="false" alt="" decoding="async">
           <video id="video-preview" class="media" hidden loop autoplay playsinline></video>
           <div id="audio-icon-overlay" class="audio-icon-overlay" hidden>
@@ -233,6 +231,6 @@
     }
   });
 </script>
-<script type="module" src="app.js?v=1ee76d2b"></script>
+<script type="module" src="app.js?v=11932dba"></script>
 </body>
 </html>

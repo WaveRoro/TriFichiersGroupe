@@ -442,80 +442,12 @@ function stopVideo() {
   try { vid.pause(); vid.removeAttribute("src"); vid.load(); } catch (e) {}
 }
 
-// ---------- ambient fill ----------
+// ---------- media sizing ----------
 
-// One direction of a box blur over RGBA pixels (edges repeat their last pixel).
-function blurPass(src, dst, w, h, radius, horizontal) {
-  const length = horizontal ? w : h;
-  const lines = horizontal ? h : w;
-  const along = horizontal ? 4 : w * 4;
-  const across = horizontal ? w * 4 : 4;
-  const width = 2 * radius + 1;
-  for (let line = 0; line < lines; line++) {
-    const base = line * across;
-    for (let channel = 0; channel < 3; channel++) {
-      let sum = 0;
-      for (let k = -radius; k <= radius; k++) {
-        sum += src[base + Math.min(length - 1, Math.max(0, k)) * along + channel];
-      }
-      for (let i = 0; i < length; i++) {
-        dst[base + i * along + channel] = sum / width;
-        sum += src[base + Math.min(length - 1, i + radius + 1) * along + channel]
-          - src[base + Math.max(0, i - radius) * along + channel];
-      }
-    }
-  }
-}
-
-// Fills the bars around a photo/video that doesn't fill the card with its own
-// colours. The picture is shrunk to a tiny copy which is really blurred (a few
-// box-blur passes) before the browser enlarges it: enlarging a tiny picture on
-// its own leaves visible pixels, a blurred one becomes a smooth gradient.
-// Drawn once per file, so it costs nothing while swiping.
-function paintAmbient(canvas, source) {
-  const w = source.naturalWidth || source.videoWidth;
-  const h = source.naturalHeight || source.videoHeight;
-  if (!w || !h) return;
-  try {
-    // Two steps: shrinking a large photo straight to a few pixels skips most of it.
-    const step = document.createElement("canvas");
-    const stepScale = 96 / Math.max(w, h);
-    step.width = Math.max(2, Math.round(w * stepScale));
-    step.height = Math.max(2, Math.round(h * stepScale));
-    const stepCtx = step.getContext("2d");
-    stepCtx.imageSmoothingQuality = "high";
-    stepCtx.drawImage(source, 0, 0, step.width, step.height);
-
-    const small = document.createElement("canvas");
-    const scale = 40 / Math.max(w, h);
-    small.width = Math.max(4, Math.round(w * scale));
-    small.height = Math.max(4, Math.round(h * scale));
-    const smallCtx = small.getContext("2d");
-    smallCtx.imageSmoothingQuality = "high";
-    smallCtx.drawImage(step, 0, 0, small.width, small.height);
-
-    const image = smallCtx.getImageData(0, 0, small.width, small.height);
-    const from = image.data;
-    const to = new Uint8ClampedArray(from.length);
-    for (let pass = 0; pass < 2; pass++) {
-      blurPass(from, to, small.width, small.height, 3, true);
-      blurPass(to, from, small.width, small.height, 3, false);
-    }
-    for (let i = 3; i < from.length; i += 4) from[i] = 255;
-    smallCtx.putImageData(image, 0, 0);
-
-    canvas.width = small.width;
-    canvas.height = small.height;
-    canvas.getContext("2d").drawImage(small, 0, 0);
-    setHidden(canvas, false);
-  } catch (e) {
-    setHidden(canvas, true);
-  }
-}
-
-// Sizes a photo/video to exactly the area it occupies inside the card and
-// says which of its edges border the filled bars, so the stylesheet can feather
-// those edges into the ambient fill instead of leaving a hard line.
+// Sizes a photo/video to exactly the area it occupies inside the card (plain
+// black bars fill the rest - a coloured, blurred fill was tried and dropped,
+// it never looked clean at the edge where the picture stops). Also used by
+// the zoom code, which needs the picture's own on-screen size.
 function fitMedia(node) {
   const w = node.naturalWidth || node.videoWidth;
   const h = node.naturalHeight || node.videoHeight;
@@ -525,12 +457,8 @@ function fitMedia(node) {
   const boxH = wrap.clientHeight;
   if (!boxW || !boxH) return;
   const scale = Math.min(boxW / w, boxH / h);
-  const fitW = Math.round(w * scale);
-  const fitH = Math.round(h * scale);
-  node.style.width = fitW + "px";
-  node.style.height = fitH + "px";
-  node.classList.toggle("fade-x", fitW < boxW - 1);
-  node.classList.toggle("fade-y", fitH < boxH - 1);
+  node.style.width = Math.round(w * scale) + "px";
+  node.style.height = Math.round(h * scale) + "px";
 }
 
 let refitFrame = 0;
@@ -558,7 +486,6 @@ function clearBack() {
   const vid = el("back-video");
   setHidden(img, true);
   setHidden(vid, true);
-  setHidden("back-ambient", true);
   setHidden("back-placeholder", true);
   img.onload = null;
   vid.onloadeddata = null;
@@ -591,9 +518,8 @@ function renderBack(next) {
   entry.promise.then((loaded) => {
     if (backId !== next.id) return;
     // "#t=" makes a paused video show its first frame.
-    const ready = () => { fitMedia(node); paintAmbient(el("back-ambient"), node); };
-    if (next.kind === "video") node.onloadeddata = ready;
-    else node.onload = ready;
+    if (next.kind === "video") node.onloadeddata = () => fitMedia(node);
+    else node.onload = () => fitMedia(node);
     node.src = next.kind === "video" ? loaded.url + "#t=0.001" : loaded.url;
     setHidden(node, false);
   }).catch(() => {});
@@ -659,7 +585,6 @@ function showMedia(data, seq) {
   videoControls.classList.remove("controls-faded");
   stopVideo();
   pdfFrame.src = "about:blank";
-  setHidden("ambient", true);
   wrap.classList.add("is-loading");
 
   return new Promise((resolve) => {
@@ -680,10 +605,7 @@ function showMedia(data, seq) {
     if (data.kind === "image") {
       img.onerror = () => fail(img);
       img.onload = () => {
-        if (seq === renderSeq) {
-          fitMedia(img);
-          paintAmbient(el("ambient"), img);
-        }
+        if (seq === renderSeq) fitMedia(img);
         // Decoded before it is shown, so nothing pops in half-drawn.
         const show = () => {
           if (seq === renderSeq) setHidden(img, false);
@@ -702,7 +624,6 @@ function showMedia(data, seq) {
       vid.oncanplay = () => {
         if (seq === renderSeq) {
           fitMedia(vid);
-          paintAmbient(el("ambient"), vid);
           setHidden(vid, false);
           setHidden(videoControls, false);
           setHidden(ring, false);

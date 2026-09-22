@@ -540,50 +540,15 @@ button, input { font: inherit; color: inherit; }
 .media {
   position: relative;
   z-index: 1;
-  --feather: 20px;
   width: 100%;
   height: 100%;
   object-fit: contain;
   pointer-events: none;
 }
 
-/* The bars around a photo that doesn't fill the card are filled with its own
-   colours, enlarged from a tiny copy of it (a soft, free "blur"). */
-.ambient {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  opacity: 0.6;
-  pointer-events: none;
-}
-
-/* Where the photo stops and the ambient fill starts there is no line: the
-   photo's edge fades out over a few dozen pixels into the fill. fitMedia()
-   sizes the element to the picture itself so the fade lands on its edge. */
 /* Zoomed photos are moved by script (see zoom.js). */
 .media.zoomed { will-change: transform; }
 .media.zoom-smooth { transition: transform 0.28s var(--ease); }
-
-.media.fade-x {
-  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--feather), #000 calc(100% - var(--feather)), transparent 100%);
-  mask-image: linear-gradient(to right, transparent 0, #000 var(--feather), #000 calc(100% - var(--feather)), transparent 100%);
-}
-.media.fade-y {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--feather), #000 calc(100% - var(--feather)), transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--feather), #000 calc(100% - var(--feather)), transparent 100%);
-}
-.media.fade-x.fade-y {
-  -webkit-mask-image:
-    linear-gradient(to right, transparent 0, #000 var(--feather), #000 calc(100% - var(--feather)), transparent 100%),
-    linear-gradient(to bottom, transparent 0, #000 var(--feather), #000 calc(100% - var(--feather)), transparent 100%);
-  -webkit-mask-composite: source-in;
-  mask-image:
-    linear-gradient(to right, transparent 0, #000 var(--feather), #000 calc(100% - var(--feather)), transparent 100%),
-    linear-gradient(to bottom, transparent 0, #000 var(--feather), #000 calc(100% - var(--feather)), transparent 100%);
-  mask-composite: intersect;
-}
 
 /* Only shown if a file is still loading after a moment, so quick loads
    never flash a spinner. */
