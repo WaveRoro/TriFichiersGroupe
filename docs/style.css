@@ -11,7 +11,9 @@
   --accent-blue: #3763d9;
   --accent-soft: rgba(55, 99, 217, 0.1);
   --accent-green: #16a35f;
+  --accent-green-soft: rgba(22, 163, 95, 0.1);
   --accent-red: #e0384f;
+  --accent-red-soft: rgba(224, 56, 79, 0.1);
   --shadow-color: rgba(20, 24, 40, 0.1);
 
   /* Buttons that float over a photo or video, whatever the theme. */
@@ -34,7 +36,9 @@
     --accent-blue: #5b8cff;
     --accent-soft: rgba(91, 140, 255, 0.16);
     --accent-green: #34d38f;
+    --accent-green-soft: rgba(52, 211, 143, 0.16);
     --accent-red: #ef4b5f;
+    --accent-red-soft: rgba(239, 75, 95, 0.16);
     --shadow-color: rgba(0, 0, 0, 0.45);
   }
 }
@@ -48,7 +52,9 @@
   --accent-blue: #5b8cff;
   --accent-soft: rgba(91, 140, 255, 0.16);
   --accent-green: #34d38f;
+  --accent-green-soft: rgba(52, 211, 143, 0.16);
   --accent-red: #ef4b5f;
+  --accent-red-soft: rgba(239, 75, 95, 0.16);
   --shadow-color: rgba(0, 0, 0, 0.45);
 }
 
@@ -288,6 +294,53 @@ button, input { font: inherit; color: inherit; }
   transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
 .theme-toggle:active { transform: scale(0.92); }
+
+/* A quiet legend on the sign-in screen: what each direction does, once you're
+   in. Fills the empty space below the button without competing with it - a
+   hairline rule sets it apart, everything else is small and muted, and it
+   uses the very same icons the card itself flashes during a real decision. */
+@keyframes hintIn {
+  from { opacity: 0; transform: translateY(4px); }
+}
+.gesture-hint {
+  display: flex;
+  justify-content: center;
+  gap: 26px;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  animation: hintIn 0.5s 0.15s var(--ease) backwards;
+}
+.gesture-hint-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+}
+.gesture-icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+}
+.gesture-icon svg { width: 15px; height: 15px; }
+.gesture-icon[data-kind="nope"] { background: var(--accent-red-soft); color: var(--accent-red); }
+.gesture-icon[data-kind="like"] { background: var(--accent-green-soft); color: var(--accent-green); }
+.gesture-icon[data-kind="skip"] { background: var(--accent-soft); color: var(--accent-blue); }
+.gesture-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.gesture-key { font-size: 10px; padding: 1px 5px; }
+/* Nothing to press on a touch screen - the icon and word already say it all. */
+@media (hover: none), (pointer: coarse) {
+  .gesture-key { display: none; }
+}
 
 /* The version of the site this page is running (see tools/stamp.mjs). */
 .app-version-line {
@@ -1150,4 +1203,5 @@ kbd {
 
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0.01ms !important; }
+  .gesture-hint { animation: none; }
 }

@@ -5,17 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Tri Photos & Videos</title>
-<link rel="stylesheet" href="style.css?v=778fe460">
+<link rel="stylesheet" href="style.css?v=d6e0f34e">
 <script type="importmap">
 {
   "imports": {
-    "./auth.js": "./auth.js?v=778fe460",
-    "./coordinator.js": "./coordinator.js?v=778fe460",
-    "./drive.js": "./drive.js?v=778fe460",
-    "./identity.js": "./identity.js?v=778fe460",
-    "./presence.js": "./presence.js?v=778fe460",
-    "./sorter.js": "./sorter.js?v=778fe460",
-    "./zoom.js": "./zoom.js?v=778fe460"
+    "./auth.js": "./auth.js?v=d6e0f34e",
+    "./coordinator.js": "./coordinator.js?v=d6e0f34e",
+    "./drive.js": "./drive.js?v=d6e0f34e",
+    "./identity.js": "./identity.js?v=d6e0f34e",
+    "./presence.js": "./presence.js?v=d6e0f34e",
+    "./sorter.js": "./sorter.js?v=d6e0f34e",
+    "./zoom.js": "./zoom.js?v=d6e0f34e"
   }
 }
 </script>
@@ -40,7 +40,29 @@
     <p class="lead">Trie a plusieurs les photos et videos stockees sur Google Drive.</p>
     <button id="btn-signin" class="btn btn-primary btn-big">Se connecter avec Google</button>
     <p id="signin-error" class="hint is-error" hidden></p>
-    <p class="app-version-line">version <span class="app-version">778fe460</span></p>
+
+    <div class="gesture-hint">
+      <div class="gesture-hint-item">
+        <span class="gesture-icon" data-kind="nope">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 6 9 12 15 18"/></svg>
+        </span>
+        <span class="gesture-label">Refuser<kbd class="gesture-key">&larr;</kbd></span>
+      </div>
+      <div class="gesture-hint-item">
+        <span class="gesture-icon" data-kind="like">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
+        </span>
+        <span class="gesture-label">Garder<kbd class="gesture-key">&rarr;</kbd></span>
+      </div>
+      <div class="gesture-hint-item">
+        <span class="gesture-icon" data-kind="skip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg>
+        </span>
+        <span class="gesture-label">Passer<kbd class="gesture-key">Espace</kbd></span>
+      </div>
+    </div>
+
+    <p class="app-version-line">version <span class="app-version">d6e0f34e</span></p>
   </div>
 </div>
 
@@ -60,7 +82,7 @@
     </details>
     <p id="folder-error" class="hint is-error" hidden></p>
     <button id="btn-signout" class="btn-link subtle">Se deconnecter</button>
-    <p class="app-version-line">version <span class="app-version">778fe460</span></p>
+    <p class="app-version-line">version <span class="app-version">d6e0f34e</span></p>
   </div>
 </div>
 
@@ -231,6 +253,6 @@
     }
   });
 </script>
-<script type="module" src="app.js?v=778fe460"></script>
+<script type="module" src="app.js?v=d6e0f34e"></script>
 </body>
 </html>
