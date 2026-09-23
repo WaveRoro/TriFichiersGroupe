@@ -389,6 +389,7 @@ function mediaEntry(id) {
   entry = { controller, url: null, promise: null };
   entry.promise = drive.mediaBlob(id, { signal: controller.signal }).then((blob) => {
     if (controller.signal.aborted) throw new Error("cancelled");
+    entry.blob = blob; // kept alongside the object URL so a download can hand over the real file
     entry.url = URL.createObjectURL(blob);
     return entry;
   });
@@ -417,6 +418,35 @@ function pruneMedia(keepIds = []) {
 
 function pruneToQueue() {
   pruneMedia([current?.id, ...sorter.upcoming(PRELOAD_DEPTH).map((f) => f.id)]);
+}
+
+// Saves a file to the device: the native share sheet where it can offer a
+// real "save" action (iOS/Android - it's what lets a video go to Camera Roll
+// without ever leaving the page), or a plain download otherwise. Both hand
+// over the exact original bytes from Drive (the same as Drive's own
+// "Download"), never the smaller preview a browser might display inline.
+async function downloadOrShare(blob, filename) {
+  const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file] });
+      return;
+    } catch (e) {
+      if (e && e.name === "AbortError") return; // the person closed the sheet - not a failure
+      // Some browsers report canShare() true but then refuse a particular
+      // file; fall through to a plain download instead of failing outright.
+    }
+  }
+  const url = URL.createObjectURL(file);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoked well after the browser has had time to start reading it - doing
+  // it immediately can cancel the download in some browsers.
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
 // Points a preview element at a file once it has downloaded. Ignored if the
@@ -1319,17 +1349,21 @@ async function init() {
   el("btn-reject").addEventListener("click", () => decide("reject"));
   el("btn-skip").addEventListener("click", doSkip);
   el("btn-undo").addEventListener("click", doUndo);
-  el("btn-open-external").addEventListener("click", async () => {
+  el("btn-download").addEventListener("click", () => {
     if (!current) return;
-    try {
-      // Straight from the cache when the file is already here: opening a tab
-      // after an await can be blocked as a popup on Safari.
-      const entry = mediaEntry(current.id);
-      const url = entry.url || (await entry.promise).url;
-      window.open(url, "_blank", "noopener");
-    } catch (e) {
-      toast("Impossible d'ouvrir le fichier.");
-    }
+    const filename = current.name || `fichier${current.ext || ""}`;
+    // Opening a video's blob: URL in a new tab used to hand it to the phone's
+    // native full-screen player instead of offering a way to save it, and on
+    // iOS leaving that player could get the app's own tab reloaded (losing
+    // all progress) under memory pressure. A save/share sheet never leaves
+    // the page at all, so it fixes both.
+    const entry = mediaCache.get(current.id);
+    const ready = entry && entry.blob ? Promise.resolve(entry) : mediaEntry(current.id).promise;
+    // Must call as directly as possible from the click for Safari to allow
+    // navigator.share() - only the network wait (rare: the file is normally
+    // already cached by the time it's on screen) goes through a promise.
+    ready.then((loaded) => downloadOrShare(loaded.blob, filename))
+      .catch(() => toast("Impossible de telecharger le fichier."));
   });
   const backToFolders = async () => {
     showScreen("folder");
