@@ -420,13 +420,29 @@ function pruneToQueue() {
   pruneMedia([current?.id, ...sorter.upcoming(PRELOAD_DEPTH).map((f) => f.id)]);
 }
 
-// Saves a file to the device: the native share sheet where it can offer a
-// real "save" action (iOS/Android - it's what lets a video go to Camera Roll
-// without ever leaving the page), or a plain download otherwise. Both hand
-// over the exact original bytes from Drive (the same as Drive's own
-// "Download"), never the smaller preview a browser might display inline.
-async function downloadOrShare(blob, filename) {
-  const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
+// Safari (desktop and, more importantly, every browser on iOS - they all
+// share its engine) doesn't reliably honour <a download>: for some content,
+// notably video, clicking it navigates the page itself to the file instead
+// of saving it. Landing on a raw video like that opens the OS's own
+// full-screen player with no page behind it, so leaving it lands on a blank
+// page - the whole app is gone. Detected here so that case can be routed to
+// something that never risks navigating away at all (see showSaveViewer).
+function isSafariFamily() {
+  const iOS = /iPad|iPhone|iPod/.test(navigator.platform)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); // iPadOS reports as a Mac
+  return iOS || /^((?!chrome|crios|android).)*safari/i.test(navigator.userAgent);
+}
+
+// Saves a file to the device. Tries the native share sheet first (iOS/
+// Android) - a real "save" action (Camera Roll, Files...) that never
+// navigates away from the page. Where that isn't available: on Safari-family
+// browsers, shows the file on our own page instead of risking a navigation
+// (see isSafariFamily); everywhere else a plain <a download> reliably just
+// downloads it. All three hand over the exact original bytes from Drive (the
+// same as Drive's own "Download"), never a smaller preview.
+async function downloadOrShare(blob, filename, mimeType, kind) {
+  const type = mimeType || blob.type || "application/octet-stream";
+  const file = new File([blob], filename, { type });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({ files: [file] });
@@ -434,8 +450,24 @@ async function downloadOrShare(blob, filename) {
     } catch (e) {
       if (e && e.name === "AbortError") return; // the person closed the sheet - not a failure
       // Some browsers report canShare() true but then refuse a particular
-      // file; fall through to a plain download instead of failing outright.
+      // file; fall through instead of failing outright.
     }
+  }
+  if (isSafariFamily()) {
+    if (kind === "image" || kind === "video") {
+      // These are the two cases <a download> is known to misbehave for here
+      // (video especially - see isSafariFamily) and the two the browser has
+      // its own native, on-page save gesture for (press-and-hold, or the
+      // video controls' own share/download icon).
+      showSaveViewer(blob, kind);
+      return;
+    }
+    // Anything else (pdf/text/other): Safari renders these fine in a new
+    // tab, with its own toolbar (a PDF gets a real share/download icon
+    // there) - unlike a raw video, landing on one doesn't take over the
+    // whole screen, so there's nothing risky about leaving this tab as-is.
+    window.open(URL.createObjectURL(file), "_blank", "noopener");
+    return;
   }
   const url = URL.createObjectURL(file);
   const a = document.createElement("a");
@@ -447,6 +479,40 @@ async function downloadOrShare(blob, filename) {
   // Revoked well after the browser has had time to start reading it - doing
   // it immediately can cancel the download in some browsers.
   setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+function hideSaveViewer() {
+  const viewer = el("save-viewer");
+  if (viewer.hasAttribute("hidden")) return;
+  setHidden(viewer, true);
+  viewer._cleanup?.();
+  viewer._cleanup = null;
+}
+
+function showSaveViewer(blob, kind) {
+  hideSaveViewer();
+  const viewer = el("save-viewer");
+  const img = el("save-viewer-img");
+  const vid = el("save-viewer-video");
+  const url = URL.createObjectURL(blob);
+  setHidden(img, kind !== "image");
+  setHidden(vid, kind !== "video");
+  if (kind === "image") {
+    img.src = url;
+  } else {
+    vid.src = url;
+    vid.load();
+  }
+  el("save-viewer-hint").textContent = kind === "image"
+    ? "Maintiens le doigt appuye sur l'image pour l'enregistrer."
+    : "Utilise les commandes de la video (ou maintiens le doigt appuye dessus) pour l'enregistrer.";
+  viewer._cleanup = () => {
+    URL.revokeObjectURL(url);
+    img.removeAttribute("src");
+    try { vid.pause(); } catch (e) {}
+    vid.removeAttribute("src");
+  };
+  setHidden(viewer, false);
 }
 
 // Points a preview element at a file once it has downloaded. Ignored if the
@@ -906,6 +972,7 @@ async function leaveFolder() {
   clearTimeout(backTimer);
   renderBack(null);
   stopVideo();
+  hideSaveViewer();
   await coord.close();
 }
 
@@ -1287,6 +1354,7 @@ function setupKeys() {
   window.addEventListener("keydown", (e) => {
     if (screens.app.hasAttribute("hidden")) return;
     if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+    if (e.key === "Escape" && !el("save-viewer").hasAttribute("hidden")) { hideSaveViewer(); return; }
     if (e.key === "Escape" && zoom.active) { zoom.reset(); drawZoom(true); return; }
     if (e.key === "ArrowRight" || e.key === "Enter") { e.preventDefault(); decide("accept"); }
     else if (e.key === "ArrowLeft" || e.key === "Backspace" || e.key === "Delete") { e.preventDefault(); decide("reject"); }
@@ -1351,19 +1419,19 @@ async function init() {
   el("btn-undo").addEventListener("click", doUndo);
   el("btn-download").addEventListener("click", () => {
     if (!current) return;
+    const { id, kind, mimeType } = current;
     const filename = current.name || `fichier${current.ext || ""}`;
-    // Opening a video's blob: URL in a new tab used to hand it to the phone's
-    // native full-screen player instead of offering a way to save it, and on
-    // iOS leaving that player could get the app's own tab reloaded (losing
-    // all progress) under memory pressure. A save/share sheet never leaves
-    // the page at all, so it fixes both.
-    const entry = mediaCache.get(current.id);
-    const ready = entry && entry.blob ? Promise.resolve(entry) : mediaEntry(current.id).promise;
+    const entry = mediaCache.get(id);
+    const ready = entry && entry.blob ? Promise.resolve(entry) : mediaEntry(id).promise;
     // Must call as directly as possible from the click for Safari to allow
     // navigator.share() - only the network wait (rare: the file is normally
     // already cached by the time it's on screen) goes through a promise.
-    ready.then((loaded) => downloadOrShare(loaded.blob, filename))
+    ready.then((loaded) => downloadOrShare(loaded.blob, filename, mimeType, kind))
       .catch(() => toast("Impossible de telecharger le fichier."));
+  });
+  el("btn-save-viewer-close").addEventListener("click", hideSaveViewer);
+  el("save-viewer").addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) hideSaveViewer(); // tap the backdrop to dismiss
   });
   const backToFolders = async () => {
     showScreen("folder");

@@ -329,6 +329,45 @@ test("saves are spaced further apart as the progress file grows", async () => {
   assert.equal(s._debounceMs(), 15000, "capped, so a decision is never left unsaved for long");
 });
 
+// ---------- filters ----------
+
+test("a kind drops off the filter bar once nothing of it is left to decide", async () => {
+  const store = new FakeStore();
+  store.addFile("a.jpg");
+  store.addFile("b.jpg");
+  store.addFile("clip.mp4", "root", { mimeType: "video/mp4" });
+  const s = await open(store);
+  assert.deepEqual((await s.current()).availableKinds, ["image", "video"]);
+  await s.accept(); // a.jpg
+  await s.reject(); // b.jpg
+  await s._settlePendingMoves();
+  const data = await s.current();
+  assert.deepEqual(data.availableKinds, ["video"], "no images left, so no image pill");
+  assert.equal(data.kind, "video");
+});
+
+test("finishing a filtered kind falls through to what's left instead of reporting the folder done", async () => {
+  const store = new FakeStore();
+  store.addFile("a.jpg");
+  store.addFile("clip.mp4", "root", { mimeType: "video/mp4" });
+  const s = await open(store);
+  await s.setFilters(["image"]);
+  assert.equal((await s.current()).kind, "image");
+  const afterLastImage = await s.accept();
+  assert.equal(afterLastImage.done, false, "a video is still there to sort");
+  assert.equal(afterLastImage.kind, "video");
+  assert.deepEqual(afterLastImage.activeFilters, [], "the exhausted filter is cleared, not silently still 'image'");
+});
+
+test("finishing the only filter with nothing else in the folder still reports done", async () => {
+  const store = new FakeStore();
+  store.addFile("a.jpg");
+  const s = await open(store);
+  await s.setFilters(["image"]);
+  const after = await s.accept();
+  assert.equal(after.done, true);
+});
+
 // ---------- rejects / moves ----------
 
 test("a rejected file never comes back when the filter changes (regression)", async () => {

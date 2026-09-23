@@ -5,17 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Tri Photos & Videos</title>
-<link rel="stylesheet" href="style.css?v=4d87dbe9">
+<link rel="stylesheet" href="style.css?v=65f7a9c5">
 <script type="importmap">
 {
   "imports": {
-    "./auth.js": "./auth.js?v=4d87dbe9",
-    "./coordinator.js": "./coordinator.js?v=4d87dbe9",
-    "./drive.js": "./drive.js?v=4d87dbe9",
-    "./identity.js": "./identity.js?v=4d87dbe9",
-    "./presence.js": "./presence.js?v=4d87dbe9",
-    "./sorter.js": "./sorter.js?v=4d87dbe9",
-    "./zoom.js": "./zoom.js?v=4d87dbe9"
+    "./auth.js": "./auth.js?v=65f7a9c5",
+    "./coordinator.js": "./coordinator.js?v=65f7a9c5",
+    "./drive.js": "./drive.js?v=65f7a9c5",
+    "./identity.js": "./identity.js?v=65f7a9c5",
+    "./presence.js": "./presence.js?v=65f7a9c5",
+    "./sorter.js": "./sorter.js?v=65f7a9c5",
+    "./zoom.js": "./zoom.js?v=65f7a9c5"
   }
 }
 </script>
@@ -62,7 +62,7 @@
       </div>
     </div>
 
-    <p class="app-version-line">version <span class="app-version">4d87dbe9</span></p>
+    <p class="app-version-line">version <span class="app-version">65f7a9c5</span></p>
   </div>
 </div>
 
@@ -82,7 +82,7 @@
     </details>
     <p id="folder-error" class="hint is-error" hidden></p>
     <button id="btn-signout" class="btn-link subtle">Se deconnecter</button>
-    <p class="app-version-line">version <span class="app-version">4d87dbe9</span></p>
+    <p class="app-version-line">version <span class="app-version">65f7a9c5</span></p>
   </div>
 </div>
 
@@ -240,6 +240,20 @@
 
 <div id="toast" class="toast" hidden></div>
 
+<!-- Where sharing a file straight to the OS isn't available (mainly Safari,
+     which can navigate away from the whole app instead of saving a blob
+     link): the file is shown here, on our own page, using the browser's own
+     native controls (press-and-hold on a photo, or a video's own share/save
+     control) to save it - without ever leaving this page. -->
+<div id="save-viewer" class="save-viewer" hidden>
+  <button id="btn-save-viewer-close" class="glass-btn save-viewer-close" title="Fermer" aria-label="Fermer">
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+  </button>
+  <img id="save-viewer-img" class="save-viewer-media" alt="" hidden>
+  <video id="save-viewer-video" class="save-viewer-media" controls playsinline hidden></video>
+  <p id="save-viewer-hint" class="save-viewer-hint"></p>
+</div>
+
 <div id="load-error" class="load-error" hidden>
   Le site vient d'etre mis a jour : recharge la page (Ctrl+Maj+R sur ordinateur, ou ferme puis rouvre l'onglet sur telephone).
 </div>
@@ -253,6 +267,6 @@
     }
   });
 </script>
-<script type="module" src="app.js?v=4d87dbe9"></script>
+<script type="module" src="app.js?v=65f7a9c5"></script>
 </body>
 </html>

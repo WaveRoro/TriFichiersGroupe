@@ -384,8 +384,15 @@ export class DriveSorter {
 
   // ---------- filtering & multi-user split ----------
 
+  // Kinds worth offering as a filter: only ones with something left to
+  // decide. A kind everyone has finished (kept, or rejected by this session
+  // before the next scan removes it from allFiles entirely) drops off the
+  // filter bar on its own instead of lingering as a pill that filters down
+  // to nothing.
   _availableKinds() {
-    const kinds = new Set(this.allFiles.map((f) => f.kind));
+    const kinds = new Set(
+      this.allFiles.filter((f) => !this.isKept(f) && !this._rejectedIds.has(f.id)).map((f) => f.kind)
+    );
     return KIND_ORDER.filter((k) => kinds.has(k));
   }
 
@@ -396,6 +403,11 @@ export class DriveSorter {
   }
 
   _applyFilter() {
+    // A filter kept selected past the point where it matches anything
+    // (finished from under it, e.g. by another session) is dropped rather
+    // than left silently filtering the queue down to nothing.
+    const remaining = new Set(this._availableKinds());
+    for (const kind of this.activeFilters) if (!remaining.has(kind)) this.activeFilters.delete(kind);
     let filtered = this.activeFilters.size === 0
       ? this.allFiles
       : this.allFiles.filter((f) => this.activeFilters.has(f.kind));
@@ -535,12 +547,23 @@ export class DriveSorter {
       kind: f.kind,
       size: f.size,
       sizeH: humanSize(f.size),
+      mimeType: f.mimeType,
       ...this._status(),
     };
   }
 
   async current() {
-    if (!this.rootId || this.index >= this.queue.length) return { done: true, ...this._status() };
+    if (!this.rootId) return { done: true, ...this._status() };
+    // Reaching the end of a filtered view (e.g. every image decided) isn't
+    // the folder being done if other kinds still have files - drop the
+    // filter and carry on into them instead of stopping here. A real "done"
+    // only happens with no filter active and truly nothing left.
+    if (this.index >= this.queue.length && this.activeFilters.size > 0 && this._availableKinds().length > 0) {
+      this.history = [];
+      this.activeFilters.clear();
+      this._applyFilter();
+    }
+    if (this.index >= this.queue.length) return { done: true, ...this._status() };
     return this._fileInfo(this.queue[this.index]);
   }
 
